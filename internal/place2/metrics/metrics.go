@@ -113,7 +113,7 @@ func Compute(sch *sexp.Schematic) Metrics {
 	}
 	var segs []seg
 	for _, w := range wires {
-		ax, ay, bx, by, ok := wireCoords(w)
+		ax, ay, bx, by, ok := WireCoords(w)
 		if !ok {
 			continue
 		}
@@ -138,7 +138,7 @@ func Compute(sch *sexp.Schematic) Metrics {
 	// pairs sharing the same endpoint.
 	endpointDirs := make(map[[2]float64]map[int]int) // point → directionBitset → count
 	for _, s := range segs {
-		dir := segDir(s.ax, s.ay, s.bx, s.by)
+		dir := SegDir(s.ax, s.ay, s.bx, s.by)
 		for _, pt := range [...][2]float64{round2pt(s.ax, s.ay), round2pt(s.bx, s.by)} {
 			if endpointDirs[pt] == nil {
 				endpointDirs[pt] = make(map[int]int)
@@ -163,7 +163,7 @@ func Compute(sch *sexp.Schematic) Metrics {
 			if a.net != "" && a.net == b.net {
 				continue
 			}
-			if segmentsCrossOrthogonal(a.ax, a.ay, a.bx, a.by, b.ax, b.ay, b.bx, b.by) {
+			if SegmentsCrossOrthogonal(a.ax, a.ay, a.bx, a.by, b.ax, b.ay, b.bx, b.by) {
 				m.CrossingCount++
 			}
 		}
@@ -183,7 +183,7 @@ func Compute(sch *sexp.Schematic) Metrics {
 			if strings.HasPrefix(sym.LibID, "power:") || sym.LibID == "Device:PWR_FLAG" {
 				continue
 			}
-			x1, y1, x2, y2 := bodyBBox(sym)
+			x1, y1, x2, y2 := BodyBBox(sym)
 			if sexp.SegmentCrossesBox(s.ax, s.ay, s.bx, s.by, x1, y1, x2, y2) {
 				m.WireThruSymbol++
 				break
@@ -223,8 +223,8 @@ func Compute(sch *sexp.Schematic) Metrics {
 	return m
 }
 
-// segDir returns 0 for horizontal, 1 for vertical, or -1 for diagonal/zero.
-func segDir(ax, ay, bx, by float64) int {
+// SegDir returns 0 for horizontal, 1 for vertical, or -1 for diagonal/zero.
+func SegDir(ax, ay, bx, by float64) int {
 	switch {
 	case math.Abs(ay-by) < 0.01 && math.Abs(ax-bx) > 0.01:
 		return 0
@@ -235,13 +235,13 @@ func segDir(ax, ay, bx, by float64) int {
 	}
 }
 
-// segmentsCrossOrthogonal reports whether one segment is horizontal and the
+// SegmentsCrossOrthogonal reports whether one segment is horizontal and the
 // other vertical AND they intersect strictly in the interior of both. Wires
 // sharing an endpoint do not count.
-func segmentsCrossOrthogonal(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
+func SegmentsCrossOrthogonal(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
 	// Normalise so a is left of b for the horizontal segment.
-	dirAB := segDir(ax, ay, bx, by)
-	dirCD := segDir(cx, cy, dx, dy)
+	dirAB := SegDir(ax, ay, bx, by)
+	dirCD := SegDir(cx, cy, dx, dy)
 	if dirAB == -1 || dirCD == -1 || dirAB == dirCD {
 		return false
 	}
@@ -261,9 +261,11 @@ func segmentsCrossOrthogonal(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
 	return vx > hx1 && vx < hx2 && hy > vy1 && hy < vy2
 }
 
-// bodyBBox returns the symbol body bbox (inset from pin tips) so wires that
-// terminate AT a pin don't count as "through symbol".
-func bodyBBox(sym sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
+// BodyBBox returns the symbol body bbox (inset from pin tips) so wires that
+// terminate AT a pin don't count as "through symbol". Exported for reuse by
+// internal/place2/gate, which needs the identical inset logic to avoid
+// false-flagging legitimate pin connections as WIRE_THRU_SYMBOL violations.
+func BodyBBox(sym sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
 	const pinLen = 2.54
 	const defaultHalf = 5.08
 	if len(sym.Pins) == 0 {
@@ -303,8 +305,9 @@ func round2pt(x, y float64) [2]float64 {
 	return [2]float64{math.Round(x*100) / 100, math.Round(y*100) / 100}
 }
 
-// wireCoords pulls the two endpoints from a (wire (pts (xy ..) (xy ..))).
-func wireCoords(w *sexp.Node) (ax, ay, bx, by float64, ok bool) {
+// WireCoords pulls the two endpoints from a (wire (pts (xy ..) (xy ..))).
+// Exported for reuse by internal/place2/gate.
+func WireCoords(w *sexp.Node) (ax, ay, bx, by float64, ok bool) {
 	pts := sexp.FindList(w, "pts")
 	if pts == nil {
 		return

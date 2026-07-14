@@ -14,6 +14,7 @@ import (
 
 	"mcp-kicad/internal/layout"
 	"mcp-kicad/internal/parts"
+	"mcp-kicad/internal/place2/gate"
 	"mcp-kicad/internal/place2/power"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
@@ -682,6 +683,14 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		mergedPwr := power.MergePowerSymbols(sch)
 		alignedPwr := power.AlignPowerBus(sch, "", 3)
 
+		// Geometric quality gate (Phase 1): demote any net whose rewiring
+		// crosses another net, crosses itself without a junction, cuts
+		// through a symbol body, or overlaps another net's wire
+		// collinearly. Demoted nets keep their exact connectivity via net
+		// labels instead of wires, which have no geometry and therefore
+		// cannot violate anything.
+		gateResult := gate.Enforce(sch)
+
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "relayout complete: moved %d symbols, rotated %d (R/C/L to align with neighbours), removed %d wires, %d no_connect markers, %d labels, %d power symbols (re-added %d power + %d signal labels at new pin positions); power dedup=%d bus-aligned=%d\n",
 			movedCount, rotatedCount, removedWires, removedNC, len(removedLabels), len(removedPower), repwrCount, relabelCount, mergedPwr, alignedPwr)
@@ -693,6 +702,7 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		if optimizerNote != "" {
 			fmt.Fprintf(&sb, "%s\n", optimizerNote)
 		}
+		fmt.Fprintf(&sb, "%s\n", gateResult.String())
 		if len(removedPower) > 0 {
 			sb.WriteString("Removed (then re-placed) power symbols:\n")
 			for _, p := range removedPower {

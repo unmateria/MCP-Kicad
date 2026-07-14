@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"mcp-kicad/internal/place2/gate"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
 )
@@ -63,6 +64,14 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	fmt.Fprintf(&sb, "connect_netlist: %d nets\n", len(input.Connections))
 
 	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, input.Connections, strategy, &sb)
+
+	// Geometric quality gate (Phase 1): demote any net whose wiring crosses
+	// another net, crosses itself without a junction, cuts through a symbol
+	// body, or overlaps another net's wire collinearly. Demoted nets keep
+	// their exact connectivity via net labels instead of wires, which have
+	// no geometry and therefore cannot violate anything.
+	gateResult := gate.Enforce(sch)
+	fmt.Fprintf(&sb, "\n%s\n", gateResult.String())
 
 	if err := os.WriteFile(input.SchematicPath, []byte(sch.Serialize()), 0o644); err != nil {
 		return toolText(fmt.Sprintf("error writing schematic: %v", err)), nil, nil
