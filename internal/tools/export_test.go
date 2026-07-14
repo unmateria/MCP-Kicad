@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"image/png"
+	"mcp-kicad/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,8 @@ import (
 func TestRenderSchematicPNG(t *testing.T) {
 	cli, err := exec.LookPath("kicad-cli")
 	if err != nil {
-		cli = `C:\Program Files\KiCad\9.0\bin\kicad-cli.exe`
-		if _, err := os.Stat(cli); err != nil {
+		cli = config.DetectKicadCLI()
+		if cli == "" {
 			t.Skip("kicad-cli not available; skipping render test")
 		}
 	}

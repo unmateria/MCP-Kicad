@@ -86,7 +86,7 @@ func FootprintSearch(libsRoot, query string) (*ComponentResult, error) {
 
 // GlobalSearch searches for a component in the KiCad global symbol library directory.
 // globalSymbolsDir is the path to the symbols folder of the KiCad installation,
-// e.g. "C:/Program Files/KiCad/9.0/share/kicad/symbols".
+// e.g. "C:/Program Files/KiCad/10.0/share/kicad/symbols".
 func GlobalSearch(globalSymbolsDir, query string) (*ComponentResult, error) {
 	parts := strings.SplitN(query, ":", 2)
 	if len(parts) != 2 {

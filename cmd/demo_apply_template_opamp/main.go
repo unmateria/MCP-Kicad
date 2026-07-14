@@ -1,5 +1,8 @@
 // demo_apply_template_opamp builds a tiny schematic and stamps the
-// opamp_noninverting template into it via the MCP handler. ERC must pass.
+// opamp_noninverting template into it via the MCP handler. The template only
+// places symbols (no wiring), so ERC is expected to report unconnected-pin
+// violations here — this demo verifies validate_design surfaces them, not
+// that ERC passes cleanly.
 package main
 
 import (
@@ -54,7 +57,30 @@ func main() {
 	must("apply_template", r, err)
 	r, _, err = env.HandleValidateForTest(ctx, nil, tools.ValidateArgs{SchematicPath: sch, RunERC: true})
 	must("validate_design ERC", r, err)
+	// The stamped template has no wires (every pin floating), so ERC is
+	// expected to report violations here — this demo only exercises the
+	// apply_template stamping step, not a fully wired circuit. Report the
+	// violation count instead of pretending ERC passed.
+	ercOut := textOf(r)
+	if n := countViolationLines(ercOut); n > 0 {
+		fmt.Printf("ERC found %d violation(s) — see above (expected: template stamps floating pins, no wires)\n", n)
+	} else {
+		fmt.Println("ERC: OK")
+	}
 	fmt.Println("OK — written:", sch)
+}
+
+// countViolationLines counts violation entries in the formatted ERC output
+// (each violation line is indented and starts with a "[CATEGORY]" tag, e.g.
+// "  [FIXABLE] Pin not connected → ..."). Returns 0 for "ERC: OK".
+func countViolationLines(ercOut string) int {
+	n := 0
+	for _, line := range strings.Split(ercOut, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			n++
+		}
+	}
+	return n
 }
 
 func must(name string, r *mcp.CallToolResult, err error) {

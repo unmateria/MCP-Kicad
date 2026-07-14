@@ -127,7 +127,7 @@ func SuggestFootprint(libID, mountType string) string {
 // GlobalFootprintSearch searches the KiCad global footprints directory for a
 // .kicad_mod file matching the given query ("LibName:FootprintName").
 // globalFpDir is the path to the footprints folder, e.g.
-// "C:/Program Files/KiCad/9.0/share/kicad/footprints".
+// "C:/Program Files/KiCad/10.0/share/kicad/footprints".
 func GlobalFootprintSearch(globalFpDir, query string) (*ComponentResult, error) {
 	parts := strings.SplitN(query, ":", 2)
 	if len(parts) != 2 {

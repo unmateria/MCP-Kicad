@@ -13,7 +13,7 @@ func main() {
 		Project:     "demo_full_board",
 		Description: "ATmega328 + LM7805 + I²C pull-ups + crystal + LED indicator",
 		Symbols: []demoharness.Symbol{
-			{LibID: "MCU_Microchip_ATmega:ATmega328-AU", Reference: "U1", Value: "ATmega328"},
+			{LibID: "MCU_Microchip_ATmega:ATmega328-A", Reference: "U1", Value: "ATmega328"},
 			{LibID: "Regulator_Linear:LM7805_TO220", Reference: "U2", Value: "LM7805"},
 			// I²C pullups
 			{LibID: "Device:R", Reference: "R1", Value: "4.7k"},
@@ -40,11 +40,11 @@ func main() {
 			{Net: "VIN", Pins: []string{"C4.1", "C5.1", "U2.VI"}},
 			{Net: "+5V", Pins: []string{"U2.VO", "C6.1", "C7.1", "U1.VCC", "U1.AVCC", "C1.1", "C2.1", "C3.1", "R1.2", "R2.2", "R3.1"}},
 			// I²C — signal flow MCU outwards (MCU first).
-			{Net: "SDA", Pins: []string{"U1.SDA", "R1.1"}},
-			{Net: "SCL", Pins: []string{"U1.SCL", "R2.1"}},
+			{Net: "SDA", Pins: []string{"U1.27", "R1.1"}},
+			{Net: "SCL", Pins: []string{"U1.28", "R2.1"}},
 			// Crystal.
-			{Net: "XTAL1", Pins: []string{"U1.XTAL1", "Y1.1", "C8.1"}},
-			{Net: "XTAL2", Pins: []string{"U1.XTAL2", "Y1.2", "C9.1"}},
+			{Net: "XTAL1", Pins: []string{"U1.7", "Y1.1", "C8.1"}},
+			{Net: "XTAL2", Pins: []string{"U1.8", "Y1.2", "C9.1"}},
 			// LED indicator — R3 first (drives the LED).
 			{Net: "LED_NODE", Pins: []string{"R3.2", "D1.A"}},
 			// GND — large fan-out.

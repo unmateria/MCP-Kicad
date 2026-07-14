@@ -3,7 +3,9 @@ package kicadcli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -26,12 +28,12 @@ type ERCResult struct {
 
 // ERC runs Electrical Rules Check on a .kicad_sch file.
 func (r *Runner) ERC(schematicPath string) (*ERCResult, error) {
-	stdout, stderr, err := r.run("sch", "erc", "--format", "json", schematicPath)
+	violations, stderr, runErr := r.runReport("sch", "erc", schematicPath)
 	res := &ERCResult{
-		Violations: parseViolations(stdout),
+		Violations: violations,
 		Stderr:     strings.TrimSpace(stderr),
 	}
-	if err != nil && res.Stderr != "" {
+	if runErr != nil && res.Stderr != "" {
 		// Hard execution failure (not just violations).
 		return res, fmt.Errorf("kicad-cli: %s", res.Stderr)
 	}
@@ -46,12 +48,12 @@ type DRCResult struct {
 
 // DRC runs Design Rules Check on a .kicad_pcb file.
 func (r *Runner) DRC(pcbPath string) (*DRCResult, error) {
-	stdout, stderr, err := r.run("pcb", "drc", "--format", "json", pcbPath)
+	violations, stderr, runErr := r.runReport("pcb", "drc", pcbPath)
 	res := &DRCResult{
-		Violations: parseViolations(stdout),
+		Violations: violations,
 		Stderr:     strings.TrimSpace(stderr),
 	}
-	if err != nil && res.Stderr != "" {
+	if runErr != nil && res.Stderr != "" {
 		return res, fmt.Errorf("kicad-cli: %s", res.Stderr)
 	}
 	return res, nil
@@ -77,67 +79,69 @@ func ParseDRCOutput(output string) []string {
 	return out
 }
 
-// parseViolations extracts Violation structs from kicad-cli JSON output.
-// Handles both pretty-printed (multi-line) and compact (single-line) objects.
+// reportDoc mirrors the JSON report kicad-cli writes for "sch erc --format json"
+// and "pcb drc --format json". ERC nests violations per-sheet under "sheets";
+// DRC (and some report variants) may place "violations" at the top level.
+// Both shapes are read so callers get every violation regardless of which
+// command produced the report.
+type reportDoc struct {
+	Sheets []struct {
+		Violations []violationJSON `json:"violations"`
+	} `json:"sheets"`
+	Violations []violationJSON `json:"violations"`
+}
+
+type violationJSON struct {
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Severity    string `json:"severity"`
+}
+
+// parseViolations extracts Violation structs from a kicad-cli JSON report
+// (the contents of the -o report file, not kicad-cli's stdout — kicad-cli
+// only prints a one-line human summary to stdout and writes the full
+// structured report exclusively to the -o file). Malformed input yields a
+// nil slice rather than panicking.
 func parseViolations(output string) []Violation {
+	var doc reportDoc
+	if err := json.Unmarshal([]byte(output), &doc); err != nil {
+		return nil
+	}
+
 	var violations []Violation
-	lines := strings.Split(output, "\n")
-
-	var cur Violation
-	inViolation := false
-
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-
-		// Single-line object: {"description": "...", ...}
-		if strings.HasPrefix(line, "{") && strings.HasSuffix(strings.TrimRight(line, ","), "}") {
-			var v Violation
-			v.Type = jsonFieldOr(line, "type", "")
-			v.Description = jsonFieldOr(line, "description", "")
-			v.Severity = jsonFieldOr(line, "severity", "")
-			if v.Description != "" || v.Type != "" {
-				violations = append(violations, v)
-			}
-			continue
+	for _, v := range doc.Violations {
+		violations = append(violations, Violation{Type: v.Type, Description: v.Description, Severity: v.Severity})
+	}
+	for _, sheet := range doc.Sheets {
+		for _, v := range sheet.Violations {
+			violations = append(violations, Violation{Type: v.Type, Description: v.Description, Severity: v.Severity})
 		}
-
-		if line == "{" {
-			cur = Violation{}
-			inViolation = true
-			continue
-		}
-		if inViolation && (line == "}" || line == "},") {
-			if cur.Description != "" || cur.Type != "" {
-				violations = append(violations, cur)
-			}
-			cur = Violation{}
-			inViolation = false
-			continue
-		}
-		if !inViolation {
-			continue
-		}
-		cur.Type = jsonFieldOr(line, "type", cur.Type)
-		cur.Description = jsonFieldOr(line, "description", cur.Description)
-		cur.Severity = jsonFieldOr(line, "severity", cur.Severity)
 	}
 	return violations
 }
 
-// jsonFieldOr returns the string value of a JSON field "key": "value" in line,
-// or fallback if the field is not present.
-func jsonFieldOr(line, key, fallback string) string {
-	prefix := `"` + key + `": "`
-	idx := strings.Index(line, prefix)
-	if idx < 0 {
-		return fallback
+// runReport runs `kicad-cli <group> <cmd> --format json -o <tmpfile> <path>`
+// and parses the JSON report kicad-cli writes to that file. kicad-cli never
+// writes the structured report to stdout — only a summary line like
+// "Found 13 violations" — so the report file is the only source of truth.
+func (r *Runner) runReport(group, cmd, path string) (violations []Violation, stderr string, err error) {
+	tmp, tmpErr := os.CreateTemp("", "kicad-"+cmd+"-*.json")
+	if tmpErr != nil {
+		return nil, "", tmpErr
 	}
-	rest := line[idx+len(prefix):]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return fallback
+	tmpPath := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpPath)
+
+	_, stderrOut, runErr := r.run(group, cmd, "--format", "json", "-o", tmpPath, path)
+
+	data, readErr := os.ReadFile(tmpPath)
+	if readErr != nil || len(data) == 0 {
+		// kicad-cli failed before writing a report (e.g. malformed schematic).
+		return nil, stderrOut, runErr
 	}
-	return rest[:end]
+
+	return parseViolations(string(data)), stderrOut, runErr
 }
 
 func (r *Runner) run(args ...string) (stdout, stderr string, err error) {

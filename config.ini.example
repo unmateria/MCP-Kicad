@@ -3,11 +3,11 @@
 kicad_cli =
 
 # Path to KiCad global symbol libraries. Auto-derived from kicad_cli if left empty.
-# e.g. C:\Program Files\KiCad\9.0\share\kicad\symbols
+# e.g. C:\Program Files\KiCad\10.0\share\kicad\symbols
 kicad_symbols =
 
 # Path to KiCad global footprint libraries. Auto-derived from kicad_cli if left empty.
-# e.g. C:\Program Files\KiCad\9.0\share\kicad\footprints
+# e.g. C:\Program Files\KiCad\10.0\share\kicad\footprints
 kicad_footprints =
 
 # Local directory for downloaded and project libraries. Defaults to "libs".

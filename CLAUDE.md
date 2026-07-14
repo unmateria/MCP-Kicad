@@ -109,9 +109,9 @@ All paths are optional — `kicad_cli` is auto-detected by scanning `C:\Program 
 
 ```ini
 [paths]
-kicad_cli = C:\Program Files\KiCad\9.0\bin\kicad-cli.exe
-kicad_symbols = C:\Program Files\KiCad\9.0\share\kicad\symbols
-kicad_footprints = C:\Program Files\KiCad\9.0\share\kicad\footprints
+kicad_cli = C:\Program Files\KiCad\10.0\bin\kicad-cli.exe
+kicad_symbols = C:\Program Files\KiCad\10.0\share\kicad\symbols
+kicad_footprints = C:\Program Files\KiCad\10.0\share\kicad\footprints
 libs_root = libs                           # default: "libs"
 output_dir = C:\claude\outputs             # default: C:\claude\outputs; writable by set_output_dir
 freerouting = C:\path\to\freerouting.jar   # optional

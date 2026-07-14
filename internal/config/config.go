@@ -63,10 +63,10 @@ func Load(path string) *Config {
 	}
 
 	if c.KicadCLI == "" {
-		c.KicadCLI = detectKicadCLI()
+		c.KicadCLI = DetectKicadCLI()
 	}
 	if c.KicadCLI == "" {
-		fmt.Fprintln(os.Stderr, "config: kicad-cli not found — install KiCad 9 or set kicad_cli in config.ini")
+		fmt.Fprintln(os.Stderr, "config: kicad-cli not found — install KiCad or set kicad_cli in config.ini")
 		os.Exit(1)
 	}
 
@@ -90,8 +90,10 @@ func Load(path string) *Config {
 	return c
 }
 
-// detectKicadCLI returns the path to kicad-cli if it can be found, or "".
-func detectKicadCLI() string {
+// DetectKicadCLI returns the path to kicad-cli if it can be found, or "".
+// Exported so callers outside this package (utility commands, tests) can
+// locate kicad-cli without hardcoding a specific KiCad version.
+func DetectKicadCLI() string {
 	var candidates []string
 	if runtime.GOOS == "windows" {
 		// Try versioned install dirs (KiCad 9.x, 8.x, …)

@@ -1,4 +1,4 @@
-(kicad_sch (version 20231120) (generator "eeschema") (generator_version "9.0") (paper "A4") (uuid "2278e3bd-1054-4cec-86c7-9183f63f1a65")
+(kicad_sch (version 20231120) (generator "eeschema") (generator_version "9.0") (paper "A4") (uuid "e5270886-c330-482a-858b-eb20bea9dc9a")
   (lib_symbols
     (symbol "Amplifier_Operational:LM358"
       (pin_names (offset 0.127)) (exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (duplicate_pin_numbers_are_jumpers no)
@@ -160,7 +160,7 @@
   (sheet_instances
     (path "/" (page "1")))
   (symbol (lib_id "Amplifier_Operational:LM358")
-    (at 80.01 80.01 0) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "b9a6cde7-23b9-4dd6-a39b-e8877e6b29a6")
+    (at 80.01 80.01 0) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "751d5de8-c284-45fa-aa9c-87834d403f7e")
     (property "Reference" "U1"
       (at 80.01 80.01 0)
       (effects
@@ -181,14 +181,14 @@
       (at 80.01 80.01 0)
       (effects
         (font (size 1.27 1.27)) (hide yes)))
-    (pin "1" (uuid "85c74b94-0869-4425-b05d-6b2535175ea9"))
-    (pin "2" (uuid "55d9b0a7-3d1b-453e-bfb2-f5c0c3540508"))
-    (pin "3" (uuid "9b2d23ae-e2ae-4a46-9c68-0180dd9aaf58"))
+    (pin "1" (uuid "bbe3c6e7-b2ec-4840-a6c9-969466037360"))
+    (pin "2" (uuid "1453cd51-9586-403e-bbfa-fe7be21caab5"))
+    (pin "3" (uuid "27fbab8d-d28c-48e0-bdbe-8564dacff8e2"))
     (instances
       (project ""
-        (path "/2278e3bd-1054-4cec-86c7-9183f63f1a65" (reference "U1") (unit 1)))))
+        (path "/e5270886-c330-482a-858b-eb20bea9dc9a" (reference "U1") (unit 1)))))
   (symbol (lib_id "Device:R")
-    (at 92.71 87.63 90) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "616e27a3-dc91-4621-b9db-e14b0212b885")
+    (at 92.71 87.63 90) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "2f61d011-4ec9-4b8d-86c4-00502507cdfc")
     (property "Reference" "R1"
       (at 92.71 87.63 0)
       (effects
@@ -209,13 +209,13 @@
       (at 92.71 87.63 0)
       (effects
         (font (size 1.27 1.27)) (hide yes)))
-    (pin "1" (uuid "6df4ac59-2cc4-4f8c-92d4-82375096aab0"))
-    (pin "2" (uuid "aba26eb6-5713-4265-86e1-670b68a9ada7"))
+    (pin "1" (uuid "98eec79e-d1e0-48d1-abcc-76490f07194f"))
+    (pin "2" (uuid "43407f5d-d512-4b0b-b03c-8b8b21568730"))
     (instances
       (project ""
-        (path "/2278e3bd-1054-4cec-86c7-9183f63f1a65" (reference "R1") (unit 1)))))
+        (path "/e5270886-c330-482a-858b-eb20bea9dc9a" (reference "R1") (unit 1)))))
   (symbol (lib_id "Device:R")
-    (at 72.39 87.63 90) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "5eb809dd-7ff1-4945-91ce-6a52417f8d85")
+    (at 72.39 87.63 90) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "8f1814ce-9626-4838-8031-55a2c3daad8b")
     (property "Reference" "R2"
       (at 72.39 87.63 0)
       (effects
@@ -236,8 +236,8 @@
       (at 72.39 87.63 0)
       (effects
         (font (size 1.27 1.27)) (hide yes)))
-    (pin "1" (uuid "47eeccf8-1832-407a-8b56-0034522cf9cb"))
-    (pin "2" (uuid "68eba71a-2a5d-416a-9c1a-dc0bf25d9e7a"))
+    (pin "1" (uuid "772f637d-9921-43a5-a738-bd70c9e2d2a4"))
+    (pin "2" (uuid "76d480f7-c4e3-4ab7-aa37-6fa9ebb49fe5"))
     (instances
       (project ""
-        (path "/2278e3bd-1054-4cec-86c7-9183f63f1a65" (reference "R2") (unit 1))))))
+        (path "/e5270886-c330-482a-858b-eb20bea9dc9a" (reference "R2") (unit 1))))))
