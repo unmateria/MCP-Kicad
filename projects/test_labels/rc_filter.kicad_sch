@@ -1,0 +1,315 @@
+(kicad_sch (version 20231120) (generator "eeschema") (generator_version "9.0") (paper "A4") (uuid "80674c4e-0407-4fc2-a119-4afc67606d4c")
+  (lib_symbols
+    (symbol "Device:R"
+      (pin_numbers (hide yes))
+      (pin_names (offset 0)) (exclude_from_sim no) (in_bom yes) (on_board yes)
+      (property "Reference" "R"
+        (at 2.032 0 90)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Value" "R"
+        (at 0 0 90)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at -1.778 0 90)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Datasheet" "~"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Description" "Resistor"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "ki_keywords" "R res resistor"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "ki_fp_filters" "R_*"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (symbol "R_0_1"
+        (rectangle (start -1.016 -2.54) (end 1.016 2.54)
+          (stroke (width 0.254) (type default))
+          (fill (type none))))
+      (symbol "R_1_1"
+        (pin passive line
+          (at 0 3.81 270) (length 1.27)
+          (name "~"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90) (length 1.27)
+          (name "~"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font (size 1.27 1.27)))))))
+    (symbol "Device:C"
+      (pin_numbers (hide yes))
+      (pin_names (offset 0.254)) (exclude_from_sim no) (in_bom yes) (on_board yes)
+      (property "Reference" "C"
+        (at 0.635 2.54 0)
+        (effects
+          (font (size 1.27 1.27)) (justify left)))
+      (property "Value" "C"
+        (at 0.635 -2.54 0)
+        (effects
+          (font (size 1.27 1.27)) (justify left)))
+      (property "Footprint" ""
+        (at 0.9652 -3.81 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Datasheet" "~"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Description" "Unpolarized capacitor"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "ki_keywords" "cap capacitor"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "ki_fp_filters" "C_*"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (symbol "C_0_1"
+        (polyline
+          (pts (xy -2.032 0.762) (xy 2.032 0.762))
+          (stroke (width 0.508) (type default))
+          (fill (type none)))
+        (polyline
+          (pts (xy -2.032 -0.762) (xy 2.032 -0.762))
+          (stroke (width 0.508) (type default))
+          (fill (type none))))
+      (symbol "C_1_1"
+        (pin passive line
+          (at 0 3.81 270) (length 2.794)
+          (name "~"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90) (length 2.794)
+          (name "~"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font (size 1.27 1.27)))))))
+    (symbol "power:GND" (power)
+      (pin_numbers (hide yes))
+      (pin_names (offset 0) (hide yes)) (exclude_from_sim no) (in_bom yes) (on_board yes)
+      (property "Reference" "#PWR"
+        (at 0 -6.35 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Value" "GND"
+        (at 0 -3.81 0)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (property "ki_keywords" "global power"
+        (at 0 0 0)
+        (effects
+          (font (size 1.27 1.27)) (hide yes)))
+      (symbol "GND_0_1"
+        (polyline
+          (pts (xy 0 0) (xy 0 -1.27) (xy 1.27 -1.27) (xy 0 -2.54) (xy -1.27 -1.27) (xy 0 -1.27))
+          (stroke (width 0) (type default))
+          (fill (type none))))
+      (symbol "GND_1_1"
+        (pin power_in line
+          (at 0 0 270) (length 0)
+          (name "~"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27))))))))
+  (sheet_instances
+    (path "/" (page "1")))
+  (symbol (lib_id "Device:R")
+    (at 50.8 50.8 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "eb46a3ec-937a-413a-ad02-1bb74b9c2fee")
+    (property "Reference" "R1"
+      (at 52.832 50.8 90)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "10k"
+      (at 50.8 50.8 90)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "5e203b89-2cfb-4f68-a076-6430ef447029"))
+    (pin "2" (uuid "6ee29cfa-bb12-452f-923a-664859f626df"))
+    (instances
+      (project ""
+        (path "/80674c4e-0407-4fc2-a119-4afc67606d4c" (reference "R1") (unit 1)))))
+  (symbol (lib_id "Device:R")
+    (at 50.8 81.28 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "05cc7f84-8b60-4543-9aa9-216a44d3a0de")
+    (property "Reference" "R2"
+      (at 52.832 81.28 90)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "4k7"
+      (at 50.8 81.28 90)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "c9881083-3ed0-4c1f-a287-300f025dbcc1"))
+    (pin "2" (uuid "6eccd32c-e53e-4444-88df-c16585ad222e"))
+    (instances
+      (project ""
+        (path "/80674c4e-0407-4fc2-a119-4afc67606d4c" (reference "R2") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 50.8 111.76 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "89cf270b-2dfc-4c17-b90d-fd358f9fb8b4")
+    (property "Reference" "C1"
+      (at 51.435 109.22 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "100nF"
+      (at 51.435 114.3 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "772befe5-2799-4a39-b3b2-78e61c307a12"))
+    (pin "2" (uuid "93085660-bab8-4df0-87a2-bddf2a949566"))
+    (instances
+      (project ""
+        (path "/80674c4e-0407-4fc2-a119-4afc67606d4c" (reference "C1") (unit 1)))))
+  (wire
+    (pts (xy 50.8 54.61) (xy 50.8 77.47))
+    (stroke (width 0) (type default)) (uuid "58dca238-af30-479d-aedd-2053e359b06f"))
+  (wire
+    (pts (xy 50.8 77.47) (xy 50.8 74.93))
+    (stroke (width 0) (type default)) (uuid "8b79e762-eb6b-484e-8509-7c74379f44f1"))
+  (wire
+    (pts (xy 50.8 74.93) (xy 46.99 74.93))
+    (stroke (width 0) (type default)) (uuid "4c0fb67c-a71e-4d75-a786-deed36160643"))
+  (wire
+    (pts (xy 46.99 74.93) (xy 46.99 105.41))
+    (stroke (width 0) (type default)) (uuid "f885f996-4129-4189-9d0f-fee40277eae8"))
+  (wire
+    (pts (xy 46.99 105.41) (xy 50.8 105.41))
+    (stroke (width 0) (type default)) (uuid "287139b4-6d76-49ca-a946-2852b1eeed40"))
+  (wire
+    (pts (xy 50.8 105.41) (xy 50.8 107.95))
+    (stroke (width 0) (type default)) (uuid "5dedab63-d4b1-41cc-b54c-d8b01201edc0"))
+  (junction (at 50.8 74.93) (diameter 0)
+    (color 0 0 0 0) (uuid "ffe7db42-9907-4200-a8b1-6b66198f694c"))
+  (label "MID"
+    (at 50.8 54.61 0) (fields_autoplaced yes)
+    (effects
+      (font (size 1.27 1.27)) (justify left bottom)) (uuid "ae98f0fd-07bf-4350-b93b-d2071a56158b")
+    (property "Intersheet References" ""
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes))))
+  (symbol (lib_id "power:GND")
+    (at 50.8 85.09 0) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "ec492727-2e9c-4cd6-80ff-a9066e3a1b6c")
+    (property "Reference" "#PWR01"
+      (at 50.8 85.09 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Value" "GND"
+      (at 50.8 82.55 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" ""
+      (at 50.8 85.09 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 85.09 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 85.09 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "ef864146-3d17-4772-bd44-9f0a9c916520"))
+    (instances
+      (project ""
+        (path "/80674c4e-0407-4fc2-a119-4afc67606d4c" (reference "#PWR01") (unit 1)))))
+  (symbol (lib_id "power:GND")
+    (at 50.8 115.57 0) (unit 1) (exclude_from_sim no) (in_bom no) (on_board no) (dnp no) (uuid "c965faeb-d0b9-4154-87b7-89067a91e99f")
+    (property "Reference" "#PWR02"
+      (at 50.8 115.57 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Value" "GND"
+      (at 50.8 113.03 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" ""
+      (at 50.8 115.57 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 115.57 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 115.57 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "be8d77b8-d6af-45dd-a9bf-889e9e918acb"))
+    (instances
+      (project ""
+        (path "/80674c4e-0407-4fc2-a119-4afc67606d4c" (reference "#PWR02") (unit 1))))))

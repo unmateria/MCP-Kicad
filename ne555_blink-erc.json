@@ -1,0 +1,53 @@
+{
+    "$schema": "https://schemas.kicad.org/erc.v1.json",
+    "coordinate_units": "mm",
+    "date": "2026-05-03T04:41:45+0200",
+    "kicad_version": "9.0.7",
+    "sheets": [
+        {
+            "path": "/",
+            "uuid_path": "/5766b858-8903-42c3-81bb-d5c0ca078823",
+            "violations": [
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 1 [GND, Power input, Line]",
+                            "pos": {
+                                "x": 0.508,
+                                "y": 0.6096
+                            },
+                            "uuid": "7ea8745b-94c5-474a-894f-b7bcf1821183"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Both CTL and DISCH are attached to the same items; CTL will be used in the netlist",
+                    "items": [
+                        {
+                            "description": "Label 'CTL'",
+                            "pos": {
+                                "x": 0.508,
+                                "y": 0.4064
+                            },
+                            "uuid": "8da97c55-c3bf-4a03-a05c-495878d295c5"
+                        },
+                        {
+                            "description": "Label 'DISCH'",
+                            "pos": {
+                                "x": 0.4064,
+                                "y": 0.4826
+                            },
+                            "uuid": "12d60bba-6ed8-45c6-b24e-e67897bf7903"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "multiple_net_names"
+                }
+            ]
+        }
+    ],
+    "source": "ne555_blink.kicad_sch"
+}

@@ -1,0 +1,24 @@
+[paths]
+# Path to kicad-cli executable. Auto-detected from common install locations if left empty.
+kicad_cli =
+
+# Path to KiCad global symbol libraries. Auto-derived from kicad_cli if left empty.
+# e.g. C:\Program Files\KiCad\9.0\share\kicad\symbols
+kicad_symbols =
+
+# Path to KiCad global footprint libraries. Auto-derived from kicad_cli if left empty.
+# e.g. C:\Program Files\KiCad\9.0\share\kicad\footprints
+kicad_footprints =
+
+# Local directory for downloaded and project libraries. Defaults to "libs".
+libs_root = libs
+
+# Optional: path to freerouting JAR for auto-routing (not yet implemented).
+freerouting =
+
+[api_keys]
+# SnapEDA API token for downloading external components. Leave empty to disable.
+snapeda =
+
+# PCBWay token (reserved for future use).
+pcbway =

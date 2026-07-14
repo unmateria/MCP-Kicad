@@ -1,0 +1,424 @@
+(kicad_sch (version 20231120) (generator "eeschema") (generator_version "9.0") (paper "A4") (uuid "88af9320-5ffc-4e79-b4b0-1732e9b7f1b7")
+  (lib_symbols
+    (symbol "Device:R"
+      (pin_numbers (hide yes))
+      (pin_names (offset 0)) (exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "R"
+        (at 2.032 0 90) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Value" "R"
+        (at 0 0 90) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at -1.778 0 90) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Description" "Resistor"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_keywords" "R res resistor"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_fp_filters" "R_*"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (symbol "R_0_1"
+        (rectangle (start -1.016 -2.54) (end 1.016 2.54)
+          (stroke (width 0.254) (type default))
+          (fill (type none))))
+      (symbol "R_1_1"
+        (pin passive line
+          (at 0 3.81 270) (length 1.27)
+          (name ""
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90) (length 1.27)
+          (name ""
+            (effects
+              (font (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font (size 1.27 1.27)))))))
+    (symbol "Device:C"
+      (pin_numbers (hide yes))
+      (pin_names (offset 0.254)) (exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "C"
+        (at 0.635 2.54 0) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27)) (justify left)))
+      (property "Value" "C"
+        (at 0.635 -2.54 0) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27)) (justify left)))
+      (property "Footprint" ""
+        (at 0.9652 -3.81 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Description" "Unpolarized capacitor"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_keywords" "cap capacitor"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_fp_filters" "C_*"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (symbol "C_0_1"
+        (polyline
+          (pts (xy -2.032 0.762) (xy 2.032 0.762))
+          (stroke (width 0.508) (type default))
+          (fill (type none)))
+        (polyline
+          (pts (xy -2.032 -0.762) (xy 2.032 -0.762))
+          (stroke (width 0.508) (type default))
+          (fill (type none))))
+      (symbol "C_1_1"
+        (pin passive line
+          (at 0 3.81 270) (length 2.794)
+          (name ""
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90) (length 2.794)
+          (name ""
+            (effects
+              (font (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font (size 1.27 1.27)))))))
+    (symbol "Device:Crystal"
+      (pin_numbers (hide yes))
+      (pin_names (offset 1.016) (hide yes)) (exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "Y"
+        (at 0 3.81 0) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Value" "Crystal"
+        (at 0 -3.81 0) (show_name no) (do_not_autoplace no)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "Description" "Two pin crystal"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_keywords" "quartz ceramic resonator oscillator"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (property "ki_fp_filters" "Crystal*"
+        (at 0 0 0) (show_name no) (do_not_autoplace no) (hide yes)
+        (effects
+          (font (size 1.27 1.27))))
+      (symbol "Crystal_0_1"
+        (polyline
+          (pts (xy -2.54 0) (xy -1.905 0))
+          (stroke (width 0) (type default))
+          (fill (type none)))
+        (polyline
+          (pts (xy -1.905 -1.27) (xy -1.905 1.27))
+          (stroke (width 0.508) (type default))
+          (fill (type none)))
+        (rectangle (start -1.143 2.54) (end 1.143 -2.54)
+          (stroke (width 0.3048) (type default))
+          (fill (type none)))
+        (polyline
+          (pts (xy 1.905 -1.27) (xy 1.905 1.27))
+          (stroke (width 0.508) (type default))
+          (fill (type none)))
+        (polyline
+          (pts (xy 2.54 0) (xy 1.905 0))
+          (stroke (width 0) (type default))
+          (fill (type none))))
+      (symbol "Crystal_1_1"
+        (pin passive line
+          (at -3.81 0 0) (length 1.27)
+          (name "1"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font (size 1.27 1.27)))))
+        (pin passive line
+          (at 3.81 0 180) (length 1.27)
+          (name "2"
+            (effects
+              (font (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font (size 1.27 1.27))))))))
+  (sheet_instances
+    (path "/" (page "1")))
+  (symbol (lib_id "Device:R")
+    (at 50.8 50.8 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "2583709c-8327-47b4-8d61-7a9d16f36104")
+    (property "Reference" "R1"
+      (at 50.8 44.45 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "4.7k"
+      (at 50.8 57.15 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "73368c2c-5d11-467d-8f65-7322f4f77fc8"))
+    (pin "2" (uuid "3b6ae8b9-57be-4bae-8272-c6c64d88937d"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "R1") (unit 1)))))
+  (symbol (lib_id "Device:R")
+    (at 50.8 81.28 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "f2ff16e2-b183-4ab5-9c5f-02ced8c1196f")
+    (property "Reference" "R2"
+      (at 50.8 74.93 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "4.7k"
+      (at 50.8 87.63 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "fba3a474-8439-46e7-944b-4b4f1cf7d413"))
+    (pin "2" (uuid "94808325-aaf0-41b5-843c-2f62715f690f"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "R2") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 50.8 111.76 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "797eb73d-4561-4a52-9e8b-f5602e7fe790")
+    (property "Reference" "C1"
+      (at 50.8 105.41 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "100n"
+      (at 50.8 118.11 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "69f88773-b91b-44bc-8641-43ba65b7c444"))
+    (pin "2" (uuid "12147d71-f58e-4436-ab81-ab5ffcaa35ce"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C1") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 50.8 142.24 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "8c4e24c7-85d2-407a-a544-1bd4fecaf3c1")
+    (property "Reference" "C2"
+      (at 50.8 135.89 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "100n"
+      (at 50.8 148.59 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 50.8 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 50.8 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 50.8 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "7e77f915-ef8e-4e9b-9d06-935d1a4f0084"))
+    (pin "2" (uuid "1fa18778-7c00-41a0-a0d2-81f0eed831b6"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C2") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 100.33 50.8 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "6477fc5e-c456-410a-a598-558593c4974e")
+    (property "Reference" "C3"
+      (at 100.33 44.45 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "100n"
+      (at 100.33 57.15 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 100.33 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 100.33 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 100.33 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "0b1953ce-585d-47c7-b23c-505d0bf94804"))
+    (pin "2" (uuid "d263b002-efbe-4386-8e4f-4d4dde4e9cc8"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C3") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 100.33 81.28 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "96ca63e8-9e63-4afe-84c7-16cfd99aa3a6")
+    (property "Reference" "C4"
+      (at 100.33 74.93 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "10u"
+      (at 100.33 87.63 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 100.33 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 100.33 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 100.33 81.28 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "107235ab-f4a1-4ec0-a45a-ca7c77e960b6"))
+    (pin "2" (uuid "f4f20cda-209e-4301-bd14-19be1d587da2"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C4") (unit 1)))))
+  (symbol (lib_id "Device:Crystal")
+    (at 100.33 111.76 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "59b57d23-a56a-49dc-b47d-c88b20451da7")
+    (property "Reference" "Y1"
+      (at 100.33 109.22 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "16MHz"
+      (at 100.33 114.3 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" ""
+      (at 100.33 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 100.33 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 100.33 111.76 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "0cd0b5cb-ffd9-4cbe-b644-c9ce69f9fb57"))
+    (pin "2" (uuid "dda9d0ca-569b-421e-bfd2-37ddac7c194e"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "Y1") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 100.33 142.24 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "49a654aa-2436-4a68-8c3d-5769b013e1e6")
+    (property "Reference" "C5"
+      (at 100.33 135.89 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "22p"
+      (at 100.33 148.59 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 100.33 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 100.33 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 100.33 142.24 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "0c14e377-ffa7-41f4-81a6-96b6865fe050"))
+    (pin "2" (uuid "4368bd54-6a40-4e7c-bd41-ea06ff56cbc4"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C5") (unit 1)))))
+  (symbol (lib_id "Device:C")
+    (at 149.86 50.8 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid "1e675682-23e1-4cae-bff2-84366df356dd")
+    (property "Reference" "C6"
+      (at 149.86 44.45 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Value" "22p"
+      (at 149.86 57.15 0)
+      (effects
+        (font (size 1.27 1.27))))
+    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+      (at 149.86 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Datasheet" ""
+      (at 149.86 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (property "Description" ""
+      (at 149.86 50.8 0)
+      (effects
+        (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "b9be10f5-0efa-4f4d-a465-3c92814407ad"))
+    (pin "2" (uuid "fc9408d3-bfd3-4fe7-89ee-df9159a03804"))
+    (instances
+      (project ""
+        (path "/88af9320-5ffc-4e79-b4b0-1732e9b7f1b7" (reference "C6") (unit 1))))))

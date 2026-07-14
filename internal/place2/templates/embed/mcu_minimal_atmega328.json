@@ -1,0 +1,26 @@
+{
+  "name": "mcu_minimal_atmega328",
+  "description": "Bare-minimum ATmega328 setup: 4× decoupling caps, 16 MHz crystal with two 22 pF load caps, reset RC.",
+  "components": [
+    {"ref_pattern": "U?",  "lib_id": "MCU_Microchip_ATmega:ATmega328-AU", "value": "ATmega328", "rel_x": 0, "rel_y": 0,    "rotation": 0,  "role": "MCU"},
+    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "100n",      "rel_x": 17.78, "rel_y": -2.54, "rotation": 0, "role": "C_VCC"},
+    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "100n",      "rel_x": 17.78, "rel_y":  2.54, "rotation": 0, "role": "C_AVCC"},
+    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "10u",       "rel_x": 22.86, "rel_y": -2.54, "rotation": 0, "role": "C_BULK"},
+    {"ref_pattern": "Y?",  "lib_id": "Device:Crystal",                   "value": "16MHz",     "rel_x": -10.16, "rel_y": 0,   "rotation": 0, "role": "Y"},
+    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "22p",       "rel_x": -10.16, "rel_y": -7.62,"rotation": 0,"role": "Cx1"},
+    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "22p",       "rel_x": -10.16, "rel_y":  7.62,"rotation": 0,"role": "Cx2"},
+    {"ref_pattern": "R?",  "lib_id": "Device:R",                         "value": "10k",       "rel_x": -15.24, "rel_y": -7.62,"rotation": 90,"role": "R_RST"}
+  ],
+  "nets": [
+    {"name": "VCC",   "pins": ["MCU.VCC", "MCU.AVCC", "C_VCC.1", "C_AVCC.1", "C_BULK.1", "R_RST.1"]},
+    {"name": "GND",   "pins": ["MCU.GND", "C_VCC.2", "C_AVCC.2", "C_BULK.2", "Cx1.2", "Cx2.2"]},
+    {"name": "XTAL1", "pins": ["MCU.XTAL1", "Y.1", "Cx1.1"]},
+    {"name": "XTAL2", "pins": ["MCU.XTAL2", "Y.2", "Cx2.1"]},
+    {"name": "RESET", "pins": ["MCU.~{RESET}", "R_RST.2"]}
+  ],
+  "external_pins": [
+    {"label": "VCC",   "from": "MCU.VCC",  "describe": "main supply"},
+    {"label": "GND",   "from": "MCU.GND",  "describe": "ground"},
+    {"label": "RESET", "from": "MCU.~{RESET}", "describe": "active-low reset; tie to button or leave for ISP"}
+  ]
+}

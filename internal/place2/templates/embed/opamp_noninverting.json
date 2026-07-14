@@ -1,0 +1,20 @@
+{
+  "name": "opamp_noninverting",
+  "description": "Non-inverting op-amp: gain = 1 + Rf/Rg. Triangle base on the input side, output drives Rf which feeds back to the inverting input through Rg→GND.",
+  "components": [
+    {"ref_pattern": "U?", "lib_id": "Amplifier_Operational:LM358",  "value": "LM358",  "rel_x":  0,    "rel_y": 0,    "rotation": 0,  "unit": 1},
+    {"ref_pattern": "R?", "lib_id": "Device:R",                      "value": "10k",    "rel_x": 12.7,  "rel_y": 7.62, "rotation": 90, "role": "Rf"},
+    {"ref_pattern": "R?", "lib_id": "Device:R",                      "value": "10k",    "rel_x": -7.62, "rel_y": 7.62, "rotation": 90, "role": "Rg"}
+  ],
+  "nets": [
+    {"name": "VOUT",     "pins": ["U?.1", "Rf.1"]},
+    {"name": "INV_NODE", "pins": ["Rf.2", "Rg.1", "U?.-"]},
+    {"name": "GND",      "pins": ["Rg.2"]}
+  ],
+  "external_pins": [
+    {"label": "VIN",   "from": "U?.+", "describe": "non-inverting input"},
+    {"label": "VOUT",  "from": "U?.1", "describe": "buffered output"},
+    {"label": "VCC",   "from": "U?.V+","describe": "positive supply"},
+    {"label": "VEE",   "from": "U?.V-","describe": "negative supply"}
+  ]
+}

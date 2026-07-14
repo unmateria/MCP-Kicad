@@ -1,0 +1,135 @@
+{
+    "$schema": "https://schemas.kicad.org/erc.v1.json",
+    "coordinate_units": "mm",
+    "date": "2026-05-03T02:28:05+0200",
+    "kicad_version": "9.0.7",
+    "sheets": [
+        {
+            "path": "/",
+            "uuid_path": "/caf2d010-cc03-4a99-b3ec-41ee8e0b8cad",
+            "violations": [
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR01 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.2065,
+                                "y": 0.508
+                            },
+                            "uuid": "6e764c8c-d723-45d4-980f-69249fd51a4d"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Label not connected to anything",
+                    "items": [
+                        {
+                            "description": "Label 'IN'",
+                            "pos": {
+                                "x": 1.2954,
+                                "y": 0.4826
+                            },
+                            "uuid": "8f587fd6-998d-400f-8be8-991616d9f796"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "label_dangling"
+                },
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR05 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.4859,
+                                "y": 0.6604
+                            },
+                            "uuid": "9f487b2b-0de0-47ad-b580-9d8bc2825257"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR07 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.4859,
+                                "y": 0.8128
+                            },
+                            "uuid": "6468ec44-110d-4098-adf9-6c83b91ea7ba"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Symbol 'NE5532' doesn't match copy in library 'Amplifier_Operational'",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [NE5532]",
+                            "pos": {
+                                "x": 1.5113,
+                                "y": 0.508
+                            },
+                            "uuid": "c737343c-7cda-4e0c-b77c-78685aa847fc"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "lib_symbol_mismatch"
+                },
+                {
+                    "description": "Symbol 'NE5532' doesn't match copy in library 'Amplifier_Operational'",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [NE5532]",
+                            "pos": {
+                                "x": 1.5113,
+                                "y": 0.7366
+                            },
+                            "uuid": "99ff794b-21b2-46b2-b366-39551c7b26e3"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "lib_symbol_mismatch"
+                },
+                {
+                    "description": "Symbol U1 has input pins in units [ B ] that are not placed.",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [NE5532]",
+                            "pos": {
+                                "x": 1.5113,
+                                "y": 0.7366
+                            },
+                            "uuid": "99ff794b-21b2-46b2-b366-39551c7b26e3"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "missing_input_pin"
+                },
+                {
+                    "description": "Symbol U1 has unplaced units [ B ]",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [NE5532]",
+                            "pos": {
+                                "x": 1.5113,
+                                "y": 0.7366
+                            },
+                            "uuid": "99ff794b-21b2-46b2-b366-39551c7b26e3"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "missing_unit"
+                }
+            ]
+        }
+    ],
+    "source": "inv_amp.kicad_sch"
+}

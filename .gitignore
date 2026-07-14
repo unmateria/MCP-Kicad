@@ -1,0 +1,8 @@
+*.exe
+*.pdf
+*.png
+*.jpg
+*.svg
+output/
+logs/
+nul

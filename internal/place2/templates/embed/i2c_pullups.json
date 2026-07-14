@@ -1,0 +1,18 @@
+{
+  "name": "i2c_pullups",
+  "description": "I²C bus pull-ups: 4.7 kΩ on each of SDA and SCL to Vcc.",
+  "components": [
+    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "4.7k", "rel_x": 0,    "rel_y": 0,    "rotation": 0, "role": "R_SDA"},
+    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "4.7k", "rel_x": 5.08, "rel_y": 0,    "rotation": 0, "role": "R_SCL"}
+  ],
+  "nets": [
+    {"name": "VCC", "pins": ["R_SDA.2", "R_SCL.2"]},
+    {"name": "SDA", "pins": ["R_SDA.1"]},
+    {"name": "SCL", "pins": ["R_SCL.1"]}
+  ],
+  "external_pins": [
+    {"label": "SDA", "from": "R_SDA.1", "describe": "pull-up tied to bus master+slaves SDA"},
+    {"label": "SCL", "from": "R_SCL.1", "describe": "pull-up tied to bus master+slaves SCL"},
+    {"label": "VCC", "from": "R_SDA.2", "describe": "supply (also reaches R_SCL.2)"}
+  ]
+}

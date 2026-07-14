@@ -1,0 +1,232 @@
+{
+    "$schema": "https://schemas.kicad.org/erc.v1.json",
+    "coordinate_units": "mm",
+    "date": "2026-07-14T21:49:19",
+    "ignored_checks": [
+        {
+            "description": "Global label only appears once in the schematic",
+            "key": "single_global_label"
+        },
+        {
+            "description": "Four connection points are joined together",
+            "key": "four_way_junction"
+        },
+        {
+            "description": "SPICE model issue",
+            "key": "simulation_model_issue"
+        },
+        {
+            "description": "Assigned footprint doesn't match footprint filters",
+            "key": "footprint_filter"
+        }
+    ],
+    "included_severities": [
+        "error",
+        "warning"
+    ],
+    "kicad_version": "10.0.2",
+    "sheets": [
+        {
+            "path": "/",
+            "uuid_path": "/2278e3bd-1054-4cec-86c7-9183f63f1a65",
+            "violations": [
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol R2 Pin 1 [Passive, Line]",
+                            "pos": {
+                                "x": 0.6858,
+                                "y": 0.8763
+                            },
+                            "uuid": "47eeccf8-1832-407a-8b56-0034522cf9cb"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 3 [+, Input, Line]",
+                            "pos": {
+                                "x": 0.7239,
+                                "y": 0.7747
+                            },
+                            "uuid": "9b2d23ae-e2ae-4a46-9c68-0180dd9aaf58"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Input pin not driven by any Output pins",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 3 [+, Input, Line]",
+                            "pos": {
+                                "x": 0.7239,
+                                "y": 0.7747
+                            },
+                            "uuid": "9b2d23ae-e2ae-4a46-9c68-0180dd9aaf58"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_driven"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 2 [-, Input, Line]",
+                            "pos": {
+                                "x": 0.7239,
+                                "y": 0.8255
+                            },
+                            "uuid": "55d9b0a7-3d1b-453e-bfb2-f5c0c3540508"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Input pin not driven by any Output pins",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 2 [-, Input, Line]",
+                            "pos": {
+                                "x": 0.7239,
+                                "y": 0.8255
+                            },
+                            "uuid": "55d9b0a7-3d1b-453e-bfb2-f5c0c3540508"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_driven"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol R2 Pin 2 [Passive, Line]",
+                            "pos": {
+                                "x": 0.762,
+                                "y": 0.8763
+                            },
+                            "uuid": "68eba71a-2a5d-416a-9c1a-dc0bf25d9e7a"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Symbol U1 has input power pins in units [ C ] that are not placed",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [LM358]",
+                            "pos": {
+                                "x": 0.8001,
+                                "y": 0.8001
+                            },
+                            "uuid": "b9a6cde7-23b9-4dd6-a39b-e8877e6b29a6"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "missing_power_pin"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol U1 Pin 1 [Output, Line]",
+                            "pos": {
+                                "x": 0.8763,
+                                "y": 0.8001
+                            },
+                            "uuid": "85c74b94-0869-4425-b05d-6b2535175ea9"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol R1 Pin 1 [Passive, Line]",
+                            "pos": {
+                                "x": 0.889,
+                                "y": 0.8763
+                            },
+                            "uuid": "6df4ac59-2cc4-4f8c-92d4-82375096aab0"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol R1 Pin 2 [Passive, Line]",
+                            "pos": {
+                                "x": 0.9652,
+                                "y": 0.8763
+                            },
+                            "uuid": "aba26eb6-5713-4265-86e1-670b68a9ada7"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Symbol 'LM358' doesn't match copy in library 'Amplifier_Operational'",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [LM358]",
+                            "pos": {
+                                "x": 0.8001,
+                                "y": 0.8001
+                            },
+                            "uuid": "b9a6cde7-23b9-4dd6-a39b-e8877e6b29a6"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "lib_symbol_mismatch"
+                },
+                {
+                    "description": "Symbol U1 has input pins in units [ B ] that are not placed",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [LM358]",
+                            "pos": {
+                                "x": 0.8001,
+                                "y": 0.8001
+                            },
+                            "uuid": "b9a6cde7-23b9-4dd6-a39b-e8877e6b29a6"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "missing_input_pin"
+                },
+                {
+                    "description": "Symbol U1 has unplaced units [ B, C ]",
+                    "items": [
+                        {
+                            "description": "Symbol U1 [LM358]",
+                            "pos": {
+                                "x": 0.8001,
+                                "y": 0.8001
+                            },
+                            "uuid": "b9a6cde7-23b9-4dd6-a39b-e8877e6b29a6"
+                        }
+                    ],
+                    "severity": "warning",
+                    "type": "missing_unit"
+                }
+            ]
+        }
+    ],
+    "source": "stamp.kicad_sch"
+}

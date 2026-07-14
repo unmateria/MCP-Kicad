@@ -1,0 +1,24 @@
+{
+  "name": "voltage_regulator_linear",
+  "description": "LM7805 linear regulator with input/output decoupling caps and a power-on LED indicator.",
+  "components": [
+    {"ref_pattern": "U?", "lib_id": "Regulator_Linear:LM7805_TO220", "value": "LM7805", "rel_x": 0,    "rel_y": 0,    "rotation": 0,  "role": "REG"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "100n",   "rel_x": -10.16,"rel_y": 2.54, "rotation": 0,  "role": "C_IN_BYP"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "10u",    "rel_x": -15.24,"rel_y": 2.54, "rotation": 0,  "role": "C_IN_BULK"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "100n",   "rel_x":  10.16,"rel_y": 2.54, "rotation": 0,  "role": "C_OUT_BYP"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "10u",    "rel_x":  15.24,"rel_y": 2.54, "rotation": 0,  "role": "C_OUT_BULK"},
+    {"ref_pattern": "D?", "lib_id": "Device:LED",                     "value": "GREEN",  "rel_x":  20.32,"rel_y": 7.62, "rotation": 0,  "role": "LED"},
+    {"ref_pattern": "R?", "lib_id": "Device:R",                       "value": "1k",     "rel_x":  20.32,"rel_y": 0,    "rotation": 0,  "role": "R_LED"}
+  ],
+  "nets": [
+    {"name": "VIN",       "pins": ["C_IN_BULK.1", "C_IN_BYP.1", "REG.VI"]},
+    {"name": "VOUT",      "pins": ["REG.VO", "C_OUT_BYP.1", "C_OUT_BULK.1", "R_LED.1"]},
+    {"name": "LED_NODE",  "pins": ["R_LED.2", "LED.A"]},
+    {"name": "GND",       "pins": ["REG.GND", "C_IN_BULK.2", "C_IN_BYP.2", "C_OUT_BYP.2", "C_OUT_BULK.2", "LED.K"]}
+  ],
+  "external_pins": [
+    {"label": "VIN",  "from": "REG.VI", "describe": "unregulated input (≥ 7.5 V)"},
+    {"label": "VOUT", "from": "REG.VO", "describe": "regulated 5 V output"},
+    {"label": "GND",  "from": "REG.GND","describe": "ground"}
+  ]
+}
