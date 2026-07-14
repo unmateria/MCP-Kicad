@@ -17,10 +17,12 @@ type StampOptions struct {
 
 // StampResult reports what Stamp added.
 type StampResult struct {
-	PlacedRefs   []string
-	LabelsAdded  int
-	WiresAdded   int
-	Notes        []string
+	PlacedRefs     []string
+	RoleRefs       map[string]string // role → allocated reference designator
+	LabelsAdded    int
+	WiresAdded     int
+	JunctionsAdded int
+	Notes          []string
 }
 
 // Stamp materialises template `tpl` into `sch`. Components are placed at
@@ -32,53 +34,81 @@ type StampResult struct {
 // where global symbol libraries live. Each component's lib_id is embedded
 // before placement so generated schematics open cleanly.
 func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, error) {
-	res := StampResult{}
+	res := StampResult{RoleRefs: map[string]string{}}
 	roleToRef := map[string]string{}
 	used := existingRefSet(sch)
 
+	// Snap the anchor to the connection grid ONCE. Template rel_x/rel_y are
+	// authored on the 1.27 mm grid, so (snapped anchor + rel) is always on grid
+	// and the later per-node snap in NewWire/NewSymbolInstance is a no-op. This
+	// keeps wire endpoints exactly on their pins regardless of the raw anchor.
+	ax := sexp.SnapGrid(opts.Anchor[0])
+	ay := sexp.SnapGrid(opts.Anchor[1])
+
 	for _, c := range tpl.Components {
-		ref := opts.RefMap[c.Role]
-		if ref == "" {
+		var ref string
+		switch {
+		case c.SameRefAs != "":
+			// Reuse the reference already allocated to another role (a further
+			// unit of the same multi-unit symbol).
+			r, ok := roleToRef[c.SameRefAs]
+			if !ok {
+				return res, fmt.Errorf("same_ref_as %q refers to an unknown/earlier role", c.SameRefAs)
+			}
+			ref = r
+		case opts.RefMap[c.Role] != "":
+			ref = opts.RefMap[c.Role]
+			used[ref] = true
+		default:
 			ref = nextRefFor(c.LibID, used)
+			used[ref] = true
 		}
-		used[ref] = true
-		roleToRef[c.Role] = ref
+		if c.Role != "" {
+			roleToRef[c.Role] = ref
+			res.RoleRefs[c.Role] = ref
+		}
 
 		if opts.EmbedFunc != nil {
 			if err := opts.EmbedFunc(c.LibID); err != nil {
 				return res, fmt.Errorf("embed %s: %w", c.LibID, err)
 			}
 		}
-		x := opts.Anchor[0] + c.RelX
-		y := opts.Anchor[1] + c.RelY
-		x = sexp.SnapGrid(x)
-		y = sexp.SnapGrid(y)
+		x := ax + c.RelX
+		y := ay + c.RelY
 		unit := c.Unit
 		if unit < 1 {
 			unit = 1
 		}
-		// Pin numbers are filled in by the caller's embedder via Schematic.LibSymbols
-		// once the def is present; pass nil to let NewSymbolInstance look them up.
-		ls := sch.LibSymbols()
-		var libDef *sexp.Node
-		if ls != nil {
-			for _, child := range ls.Children {
-				if child.Head() == "symbol" && sexp.StringValue(child, 1) == c.LibID {
-					libDef = child
-					break
-				}
-			}
-		}
+		libDef := findLibDef(sch, c.LibID)
 		var pinNums []string
 		if libDef != nil {
 			pinNums = sexp.ExtractPinNumbers(libDef, unit)
 		}
+		// Power symbols (power:*) are virtual: no BOM/board presence, hidden
+		// reference. Every other symbol is a real part.
+		isPower := strings.HasPrefix(c.LibID, "power:")
+		inBom, onBoard := !isPower, !isPower
 		sch.AddSymbol(sexp.NewSymbolInstance(c.LibID, ref, c.Value, "",
-			x, y, c.Rotation, unit, pinNums, sch.UUID(), false, false, libDef))
+			x, y, c.Rotation, unit, pinNums, sch.UUID(), inBom, onBoard, libDef))
 		res.PlacedRefs = append(res.PlacedRefs, ref)
 	}
 
-	// External pin labels.
+	// Baked geometry: wires, junctions and labels copied verbatim, translated
+	// by the stamp anchor.
+	for _, w := range tpl.Wires {
+		sch.AddWire(sexp.NewWire(ax+w.X1, ay+w.Y1, ax+w.X2, ay+w.Y2))
+		res.WiresAdded++
+	}
+	for _, j := range tpl.Junctions {
+		sch.AddJunction(sexp.NewJunction(ax+j.X, ay+j.Y))
+		res.JunctionsAdded++
+	}
+	for _, l := range tpl.Labels {
+		sch.AddLabel(sexp.NewNetLabel(l.Name, ax+l.X, ay+l.Y, l.Rotation))
+		res.LabelsAdded++
+	}
+
+	// External pin labels requested by the caller (renames/extra connections).
 	for rolePin, netName := range opts.PinMap {
 		role, pin := splitRolePin(rolePin)
 		ref, ok := roleToRef[role]
@@ -95,6 +125,20 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 		res.LabelsAdded++
 	}
 	return res, nil
+}
+
+// findLibDef returns the embedded lib_symbols definition for libID, or nil.
+func findLibDef(sch *sexp.Schematic, libID string) *sexp.Node {
+	ls := sch.LibSymbols()
+	if ls == nil {
+		return nil
+	}
+	for _, child := range ls.Children {
+		if child.Head() == "symbol" && sexp.StringValue(child, 1) == libID {
+			return child
+		}
+	}
+	return nil
 }
 
 func existingRefSet(sch *sexp.Schematic) map[string]bool {
@@ -120,14 +164,18 @@ func nextRefFor(libID string, used map[string]bool) string {
 
 func refPrefix(libID string) string {
 	switch {
+	case strings.HasPrefix(libID, "power:"):
+		return "#PWR"
+	case strings.HasPrefix(libID, "Device:Crystal"):
+		return "Y"
+	case strings.HasPrefix(libID, "Device:LED"):
+		return "D"
 	case strings.HasPrefix(libID, "Device:R"):
 		return "R"
-	case strings.HasPrefix(libID, "Device:C"), strings.HasPrefix(libID, "Device:CP"):
+	case strings.HasPrefix(libID, "Device:CP"), strings.HasPrefix(libID, "Device:C"):
 		return "C"
 	case strings.HasPrefix(libID, "Device:L"):
 		return "L"
-	case strings.HasPrefix(libID, "Device:LED"):
-		return "D"
 	case strings.HasPrefix(libID, "Device:D"):
 		return "D"
 	case strings.HasPrefix(libID, "Amplifier_Operational:"),

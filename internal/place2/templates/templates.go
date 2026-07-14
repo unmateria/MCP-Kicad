@@ -30,6 +30,36 @@ type Component struct {
 	Rotation   float64 `json:"rotation"`
 	Unit       int     `json:"unit,omitempty"`
 	Role       string  `json:"role,omitempty"` // stable name used in nets/external_pins
+	// SameRefAs names an earlier component's role whose reference designator this
+	// component must reuse. Used to place a second unit of a multi-unit symbol
+	// (e.g. an op-amp's power unit) under the same reference as its first unit.
+	SameRefAs string `json:"same_ref_as,omitempty"`
+}
+
+// Wire is one baked orthogonal wire segment, in coordinates relative to the
+// template origin (same convention as Component rel_x/rel_y).
+type Wire struct {
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+}
+
+// Junction is a baked solder dot where three or more wire ends meet, relative
+// to the template origin.
+type Junction struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// Label is a baked net label placed at a fixed point relative to the template
+// origin. Used for the sub-circuit's signal I/O (VIN, VOUT, SDA…). Two labels
+// with the same name — here or in the surrounding circuit — are one net.
+type Label struct {
+	Name     string  `json:"name"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Rotation float64 `json:"rotation,omitempty"`
 }
 
 // Net is one electrical net inside the template. Pins are role-qualified
@@ -47,12 +77,22 @@ type ExternalPin struct {
 }
 
 // Template is one complete substructure spec.
+//
+// Wires, Junctions and Labels hold the BAKED drawing geometry: the sub-circuit
+// is wired once, by hand, in coordinates relative to the template origin, and
+// copied verbatim at stamp time. Nothing about the wiring is computed when a
+// template is stamped, so a stamped template cannot look bad. Nets is the
+// declared connectivity contract that the baked geometry must satisfy (verified
+// in templates_test.go).
 type Template struct {
 	Name         string        `json:"name"`
 	Description  string        `json:"description"`
 	Components   []Component   `json:"components"`
 	Nets         []Net         `json:"nets"`
 	ExternalPins []ExternalPin `json:"external_pins"`
+	Wires        []Wire        `json:"wires,omitempty"`
+	Junctions    []Junction    `json:"junctions,omitempty"`
+	Labels       []Label       `json:"labels,omitempty"`
 }
 
 // List returns every available template's name and one-line description.

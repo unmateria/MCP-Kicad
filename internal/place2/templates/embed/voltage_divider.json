@@ -1,18 +1,28 @@
 {
   "name": "voltage_divider",
-  "description": "Two resistors in series between Vcc and GND with a voltage tap. Vout = Vcc * R2 / (R1 + R2).",
+  "description": "Two resistors in series between Vcc and GND with a voltage tap. Vout = Vcc * R2 / (R1 + R2). Vcc rail on top, GND below, tap in the middle.",
   "components": [
-    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "10k", "rel_x": 0, "rel_y": 0,   "rotation": 0, "role": "Rtop"},
-    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "10k", "rel_x": 0, "rel_y": 7.62,"rotation": 0, "role": "Rbot"}
+    {"ref_pattern": "R?", "lib_id": "Device:R",   "value": "10k", "rel_x": 0, "rel_y": 0,     "rotation": 0, "role": "Rtop"},
+    {"ref_pattern": "R?", "lib_id": "Device:R",   "value": "10k", "rel_x": 0, "rel_y": 10.16, "rotation": 0, "role": "Rbot"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": 0, "rel_y": -6.35,  "rotation": 0, "role": "VCC1"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 0, "rel_y": 16.51,  "rotation": 0, "role": "GND1"}
   ],
   "nets": [
-    {"name": "VCC", "pins": ["Rtop.1"]},
+    {"name": "VCC", "pins": ["Rtop.1", "VCC1.1"]},
     {"name": "TAP", "pins": ["Rtop.2", "Rbot.1"]},
-    {"name": "GND", "pins": ["Rbot.2"]}
+    {"name": "GND", "pins": ["Rbot.2", "GND1.1"]}
   ],
   "external_pins": [
-    {"label": "VCC", "from": "Rtop.1", "describe": "supply rail"},
-    {"label": "TAP", "from": "Rtop.2", "describe": "voltage tap output"},
-    {"label": "GND", "from": "Rbot.2", "describe": "ground return"}
+    {"label": "VCC", "from": "Rtop.1", "describe": "supply rail (has power:VCC symbol)"},
+    {"label": "TAP", "from": "Rtop.2", "describe": "voltage tap output (labelled TAP)"},
+    {"label": "GND", "from": "Rbot.2", "describe": "ground return (has power:GND symbol)"}
+  ],
+  "wires": [
+    {"x1": 0, "y1": -3.81, "x2": 0, "y2": -6.35},
+    {"x1": 0, "y1": 3.81,  "x2": 0, "y2": 6.35},
+    {"x1": 0, "y1": 13.97, "x2": 0, "y2": 16.51}
+  ],
+  "labels": [
+    {"name": "TAP", "x": 0, "y": 3.81, "rotation": 0}
   ]
 }

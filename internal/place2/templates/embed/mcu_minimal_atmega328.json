@@ -1,26 +1,76 @@
 {
   "name": "mcu_minimal_atmega328",
-  "description": "Bare-minimum ATmega328 setup: 4× decoupling caps, 16 MHz crystal with two 22 pF load caps, reset RC.",
+  "description": "Bare-minimum ATmega328-A (KiCad 10 name): VCC/AVCC decoupling (100n x2 + 10u bulk) as a row of Vcc/GND cap sandwiches above the chip, 16 MHz crystal with two 22 pF load caps on the right (XTAL1=pin7, XTAL2=pin8), and a 10k reset pull-up.",
   "components": [
-    {"ref_pattern": "U?",  "lib_id": "MCU_Microchip_ATmega:ATmega328-AU", "value": "ATmega328", "rel_x": 0, "rel_y": 0,    "rotation": 0,  "role": "MCU"},
-    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "100n",      "rel_x": 17.78, "rel_y": -2.54, "rotation": 0, "role": "C_VCC"},
-    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "100n",      "rel_x": 17.78, "rel_y":  2.54, "rotation": 0, "role": "C_AVCC"},
-    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "10u",       "rel_x": 22.86, "rel_y": -2.54, "rotation": 0, "role": "C_BULK"},
-    {"ref_pattern": "Y?",  "lib_id": "Device:Crystal",                   "value": "16MHz",     "rel_x": -10.16, "rel_y": 0,   "rotation": 0, "role": "Y"},
-    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "22p",       "rel_x": -10.16, "rel_y": -7.62,"rotation": 0,"role": "Cx1"},
-    {"ref_pattern": "C?",  "lib_id": "Device:C",                         "value": "22p",       "rel_x": -10.16, "rel_y":  7.62,"rotation": 0,"role": "Cx2"},
-    {"ref_pattern": "R?",  "lib_id": "Device:R",                         "value": "10k",       "rel_x": -15.24, "rel_y": -7.62,"rotation": 90,"role": "R_RST"}
+    {"ref_pattern": "U?", "lib_id": "MCU_Microchip_ATmega:ATmega328-A", "value": "ATmega328", "rel_x": 0, "rel_y": 0, "rotation": 0, "role": "MCU"},
+
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": 0,    "rel_y": -40.64, "rotation": 0, "role": "VCC_MCU"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": 2.54, "rel_y": -40.64, "rotation": 0, "role": "VCC_AVCC"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 0,    "rel_y": 40.64,  "rotation": 0, "role": "GND_MCU"},
+
+    {"ref_pattern": "C?", "lib_id": "Device:C", "value": "100n", "rel_x": -7.62,  "rel_y": -48.26, "rotation": 0, "role": "C_VCC"},
+    {"ref_pattern": "C?", "lib_id": "Device:C", "value": "100n", "rel_x": -15.24, "rel_y": -48.26, "rotation": 0, "role": "C_AVCC"},
+    {"ref_pattern": "C?", "lib_id": "Device:C", "value": "10u",  "rel_x": -22.86, "rel_y": -48.26, "rotation": 0, "role": "C_BULK"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": -7.62,  "rel_y": -54.61, "rotation": 0, "role": "VCC_C1"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": -15.24, "rel_y": -54.61, "rotation": 0, "role": "VCC_C2"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": -22.86, "rel_y": -54.61, "rotation": 0, "role": "VCC_C3"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": -7.62,  "rel_y": -41.91, "rotation": 0, "role": "GND_C1"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": -15.24, "rel_y": -41.91, "rotation": 0, "role": "GND_C2"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": -22.86, "rel_y": -41.91, "rotation": 0, "role": "GND_C3"},
+
+    {"ref_pattern": "Y?", "lib_id": "Device:Crystal", "value": "16MHz", "rel_x": 20.32, "rel_y": -13.97, "rotation": 90, "role": "Y"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",       "value": "22p",   "rel_x": 17.78, "rel_y": -22.86, "rotation": 0, "role": "Cx1"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",       "value": "22p",   "rel_x": 25.4,  "rel_y": -6.35,  "rotation": 0, "role": "Cx2"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 17.78, "rel_y": -29.21, "rotation": 0, "role": "GND_X1"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 25.4,  "rel_y": 0,     "rotation": 0, "role": "GND_X2"},
+
+    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "10k", "rel_x": 22.86, "rel_y": 2.54, "rotation": 0, "role": "R_RST"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC", "rel_x": 22.86, "rel_y": -3.81, "rotation": 0, "role": "VCC_RST"}
   ],
   "nets": [
-    {"name": "VCC",   "pins": ["MCU.VCC", "MCU.AVCC", "C_VCC.1", "C_AVCC.1", "C_BULK.1", "R_RST.1"]},
-    {"name": "GND",   "pins": ["MCU.GND", "C_VCC.2", "C_AVCC.2", "C_BULK.2", "Cx1.2", "Cx2.2"]},
-    {"name": "XTAL1", "pins": ["MCU.XTAL1", "Y.1", "Cx1.1"]},
-    {"name": "XTAL2", "pins": ["MCU.XTAL2", "Y.2", "Cx2.1"]},
-    {"name": "RESET", "pins": ["MCU.~{RESET}", "R_RST.2"]}
+    {"name": "VCC",   "pins": ["MCU.4", "MCU.18", "C_VCC.1", "C_AVCC.1", "C_BULK.1", "R_RST.1", "VCC_MCU.1", "VCC_AVCC.1", "VCC_RST.1"]},
+    {"name": "GND",   "pins": ["MCU.3", "C_VCC.2", "C_AVCC.2", "C_BULK.2", "Cx1.1", "Cx2.2", "GND_MCU.1", "GND_X1.1", "GND_X2.1"]},
+    {"name": "XTAL1", "pins": ["MCU.7", "Y.2", "Cx1.2"]},
+    {"name": "XTAL2", "pins": ["MCU.8", "Y.1", "Cx2.1"]},
+    {"name": "RESET", "pins": ["MCU.29", "R_RST.2"]}
   ],
   "external_pins": [
-    {"label": "VCC",   "from": "MCU.VCC",  "describe": "main supply"},
-    {"label": "GND",   "from": "MCU.GND",  "describe": "ground"},
-    {"label": "RESET", "from": "MCU.~{RESET}", "describe": "active-low reset; tie to button or leave for ISP"}
+    {"label": "VCC",   "from": "MCU.4",  "describe": "main supply (has power:VCC symbols)"},
+    {"label": "GND",   "from": "MCU.3",  "describe": "ground (has power:GND symbols)"},
+    {"label": "RESET", "from": "MCU.29", "describe": "active-low reset (labelled RESET); tie to button or ISP"}
+  ],
+  "wires": [
+    {"x1": 0,    "y1": -38.1,  "x2": 0,     "y2": -40.64},
+    {"x1": 2.54, "y1": -38.1,  "x2": 2.54,  "y2": -40.64},
+    {"x1": 0,    "y1": 38.1,   "x2": 0,     "y2": 40.64},
+
+    {"x1": -7.62,  "y1": -52.07, "x2": -7.62,  "y2": -54.61},
+    {"x1": -7.62,  "y1": -44.45, "x2": -7.62,  "y2": -41.91},
+    {"x1": -15.24, "y1": -52.07, "x2": -15.24, "y2": -54.61},
+    {"x1": -15.24, "y1": -44.45, "x2": -15.24, "y2": -41.91},
+    {"x1": -22.86, "y1": -52.07, "x2": -22.86, "y2": -54.61},
+    {"x1": -22.86, "y1": -44.45, "x2": -22.86, "y2": -41.91},
+
+    {"x1": 15.24, "y1": -15.24, "x2": 17.78, "y2": -15.24},
+    {"x1": 17.78, "y1": -15.24, "x2": 20.32, "y2": -15.24},
+    {"x1": 20.32, "y1": -15.24, "x2": 20.32, "y2": -17.78},
+    {"x1": 17.78, "y1": -15.24, "x2": 17.78, "y2": -19.05},
+    {"x1": 17.78, "y1": -26.67, "x2": 17.78, "y2": -29.21},
+
+    {"x1": 15.24, "y1": -12.7,  "x2": 20.32, "y2": -12.7},
+    {"x1": 20.32, "y1": -12.7,  "x2": 20.32, "y2": -10.16},
+    {"x1": 20.32, "y1": -10.16, "x2": 25.4,  "y2": -10.16},
+    {"x1": 25.4,  "y1": -2.54,  "x2": 25.4,  "y2": 0},
+
+    {"x1": 15.24, "y1": 7.62,   "x2": 22.86, "y2": 7.62},
+    {"x1": 22.86, "y1": 7.62,   "x2": 22.86, "y2": 6.35},
+    {"x1": 22.86, "y1": -1.27,  "x2": 22.86, "y2": -3.81}
+  ],
+  "junctions": [
+    {"x": 17.78, "y": -15.24},
+    {"x": 20.32, "y": -10.16}
+  ],
+  "labels": [
+    {"name": "RESET", "x": 15.24, "y": 7.62, "rotation": 0}
   ]
 }

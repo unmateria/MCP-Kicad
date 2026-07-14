@@ -1086,14 +1086,22 @@ func flattenRawSymbol(child, parent *Node) *Node {
 
 	merged := &Node{Children: []*Node{Atom("symbol"), Str(partName)}}
 
-	// Parent's non-property metadata (pin_names, pin_numbers, exclude_from_sim…)
-	// and renamed sub-unit nodes (which carry the actual pin definitions).
+	// Parent's non-property metadata (pin_names, pin_numbers, exclude_from_sim…),
+	// its properties, and its renamed sub-unit nodes (the pin definitions).
+	// KiCad's own LIB_SYMBOL::Flatten() copies the parent whole and then applies
+	// the derived symbol's field overrides, so a flattened derived symbol INHERITS
+	// every parent property the child does not itself redefine (e.g. ki_locked).
+	// Dropping those makes the embedded copy differ from what KiCad regenerates
+	// and triggers a spurious lib_symbol_mismatch ERC warning.
 	var parentMeta []*Node
+	var parentProps []*Node
 	var parentSubSymbols []*Node
 	for _, c := range parent.Children[2:] { // skip "symbol" atom and unqualified name
 		switch c.Head() {
-		case "embedded_fonts", "extends", "property":
+		case "embedded_fonts", "extends":
 			continue
+		case "property":
+			parentProps = append(parentProps, deepClone(c))
 		case "symbol":
 			sub := deepClone(c)
 			if sub.Head() == "symbol" && len(sub.Children) > 1 {
@@ -1112,20 +1120,49 @@ func flattenRawSymbol(child, parent *Node) *Node {
 		}
 	}
 
-	// Child's properties and metadata override parent, excluding structural nodes.
-	var childProps []*Node
+	// Child's own properties (by name, override parent) and any non-structural
+	// child metadata.
+	childProps := map[string]*Node{}
+	var childPropOrder []string
+	var childMeta []*Node
 	for _, c := range child.Children[2:] {
 		switch c.Head() {
 		case "extends", "embedded_fonts", "symbol":
 			continue
+		case "property":
+			name := StringValue(c, 1)
+			if _, seen := childProps[name]; !seen {
+				childPropOrder = append(childPropOrder, name)
+			}
+			childProps[name] = deepClone(c)
 		default:
-			childProps = append(childProps, deepClone(c))
+			childMeta = append(childMeta, deepClone(c))
 		}
 	}
 
-	// Order: parent metadata, child properties (overrides), parent sub-units (pins).
+	// Merge properties: parent's, overridden in place by the child's; then any
+	// property the child adds that the parent lacked.
+	var mergedProps []*Node
+	usedChild := map[string]bool{}
+	for _, pp := range parentProps {
+		name := StringValue(pp, 1)
+		if cp, ok := childProps[name]; ok {
+			mergedProps = append(mergedProps, cp)
+			usedChild[name] = true
+		} else {
+			mergedProps = append(mergedProps, pp)
+		}
+	}
+	for _, name := range childPropOrder {
+		if !usedChild[name] {
+			mergedProps = append(mergedProps, childProps[name])
+		}
+	}
+
+	// Order: parent metadata, merged properties, child metadata, parent sub-units.
 	merged.Children = append(merged.Children, parentMeta...)
-	merged.Children = append(merged.Children, childProps...)
+	merged.Children = append(merged.Children, mergedProps...)
+	merged.Children = append(merged.Children, childMeta...)
 	merged.Children = append(merged.Children, parentSubSymbols...)
 	return merged
 }

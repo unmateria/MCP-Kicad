@@ -1,24 +1,52 @@
 {
   "name": "voltage_regulator_linear",
-  "description": "LM7805 linear regulator with input/output decoupling caps and a power-on LED indicator.",
+  "description": "LM7805 linear regulator with input/output decoupling (100n + 10u each side) and a power-on LED indicator. VIN rail on the left, VOUT on the right, GND rail below, LED branch on the far right.",
   "components": [
-    {"ref_pattern": "U?", "lib_id": "Regulator_Linear:LM7805_TO220", "value": "LM7805", "rel_x": 0,    "rel_y": 0,    "rotation": 0,  "role": "REG"},
-    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "100n",   "rel_x": -10.16,"rel_y": 2.54, "rotation": 0,  "role": "C_IN_BYP"},
-    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "10u",    "rel_x": -15.24,"rel_y": 2.54, "rotation": 0,  "role": "C_IN_BULK"},
-    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "100n",   "rel_x":  10.16,"rel_y": 2.54, "rotation": 0,  "role": "C_OUT_BYP"},
-    {"ref_pattern": "C?", "lib_id": "Device:C",                       "value": "10u",    "rel_x":  15.24,"rel_y": 2.54, "rotation": 0,  "role": "C_OUT_BULK"},
-    {"ref_pattern": "D?", "lib_id": "Device:LED",                     "value": "GREEN",  "rel_x":  20.32,"rel_y": 7.62, "rotation": 0,  "role": "LED"},
-    {"ref_pattern": "R?", "lib_id": "Device:R",                       "value": "1k",     "rel_x":  20.32,"rel_y": 0,    "rotation": 0,  "role": "R_LED"}
+    {"ref_pattern": "U?", "lib_id": "Regulator_Linear:LM7805_TO220", "value": "LM7805", "rel_x": 0,     "rel_y": 0,     "rotation": 0, "role": "REG"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",   "value": "10u",   "rel_x": -20.32, "rel_y": 3.81,  "rotation": 0, "role": "C_IN_BULK"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",   "value": "100n",  "rel_x": -12.7,  "rel_y": 3.81,  "rotation": 0, "role": "C_IN_BYP"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",   "value": "100n",  "rel_x": 12.7,   "rel_y": 3.81,  "rotation": 0, "role": "C_OUT_BYP"},
+    {"ref_pattern": "C?", "lib_id": "Device:C",   "value": "10u",   "rel_x": 20.32,  "rel_y": 3.81,  "rotation": 0, "role": "C_OUT_BULK"},
+    {"ref_pattern": "R?", "lib_id": "Device:R",   "value": "1k",    "rel_x": 25.4,   "rel_y": 3.81,  "rotation": 0, "role": "R_LED"},
+    {"ref_pattern": "D?", "lib_id": "Device:LED", "value": "GREEN", "rel_x": 25.4,   "rel_y": 13.97, "rotation": 90, "role": "LED"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 0,     "rel_y": 10.16, "rotation": 0, "role": "GND_L"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 20.32, "rel_y": 10.16, "rotation": 0, "role": "GND_R"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:GND", "value": "GND", "rel_x": 25.4,  "rel_y": 20.32, "rotation": 0, "role": "GND_LED"}
   ],
   "nets": [
-    {"name": "VIN",       "pins": ["C_IN_BULK.1", "C_IN_BYP.1", "REG.VI"]},
-    {"name": "VOUT",      "pins": ["REG.VO", "C_OUT_BYP.1", "C_OUT_BULK.1", "R_LED.1"]},
-    {"name": "LED_NODE",  "pins": ["R_LED.2", "LED.A"]},
-    {"name": "GND",       "pins": ["REG.GND", "C_IN_BULK.2", "C_IN_BYP.2", "C_OUT_BYP.2", "C_OUT_BULK.2", "LED.K"]}
+    {"name": "VIN",      "pins": ["C_IN_BULK.1", "C_IN_BYP.1", "REG.VI"]},
+    {"name": "VOUT",     "pins": ["REG.VO", "C_OUT_BYP.1", "C_OUT_BULK.1", "R_LED.1"]},
+    {"name": "LED_NODE", "pins": ["R_LED.2", "LED.A"]},
+    {"name": "GND",      "pins": ["REG.GND", "C_IN_BULK.2", "C_IN_BYP.2", "C_OUT_BYP.2", "C_OUT_BULK.2", "LED.K", "GND_L.1", "GND_R.1", "GND_LED.1"]}
   ],
   "external_pins": [
-    {"label": "VIN",  "from": "REG.VI", "describe": "unregulated input (≥ 7.5 V)"},
-    {"label": "VOUT", "from": "REG.VO", "describe": "regulated 5 V output"},
-    {"label": "GND",  "from": "REG.GND","describe": "ground"}
+    {"label": "VIN",  "from": "REG.VI", "describe": "unregulated input (>= 7.5 V); labelled VIN"},
+    {"label": "VOUT", "from": "REG.VO", "describe": "regulated 5 V output; labelled VOUT"}
+  ],
+  "wires": [
+    {"x1": -20.32, "y1": 0,     "x2": -12.7,  "y2": 0},
+    {"x1": -12.7,  "y1": 0,     "x2": -7.62,  "y2": 0},
+    {"x1": -20.32, "y1": 7.62,  "x2": -12.7,  "y2": 7.62},
+    {"x1": -12.7,  "y1": 7.62,  "x2": 0,      "y2": 7.62},
+    {"x1": 0,      "y1": 7.62,  "x2": 0,      "y2": 10.16},
+    {"x1": 7.62,   "y1": 0,     "x2": 12.7,   "y2": 0},
+    {"x1": 12.7,   "y1": 0,     "x2": 20.32,  "y2": 0},
+    {"x1": 20.32,  "y1": 0,     "x2": 25.4,   "y2": 0},
+    {"x1": 12.7,   "y1": 7.62,  "x2": 20.32,  "y2": 7.62},
+    {"x1": 20.32,  "y1": 7.62,  "x2": 20.32,  "y2": 10.16},
+    {"x1": 25.4,   "y1": 7.62,  "x2": 25.4,   "y2": 10.16},
+    {"x1": 25.4,   "y1": 17.78, "x2": 25.4,   "y2": 20.32}
+  ],
+  "junctions": [
+    {"x": -12.7, "y": 0},
+    {"x": -12.7, "y": 7.62},
+    {"x": 0,     "y": 7.62},
+    {"x": 12.7,  "y": 0},
+    {"x": 20.32, "y": 0},
+    {"x": 20.32, "y": 7.62}
+  ],
+  "labels": [
+    {"name": "VIN",  "x": -20.32, "y": 0, "rotation": 180},
+    {"name": "VOUT", "x": 7.62,   "y": 0, "rotation": 0}
   ]
 }

@@ -1,18 +1,33 @@
 {
   "name": "i2c_pullups",
-  "description": "I²C bus pull-ups: 4.7 kΩ on each of SDA and SCL to Vcc.",
+  "description": "I2C bus pull-ups: 4.7 kohm on each of SDA and SCL to Vcc. Shared Vcc rail on top with one power:VCC symbol; SDA/SCL drop out the bottom as labelled bus lines.",
   "components": [
-    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "4.7k", "rel_x": 0,    "rel_y": 0,    "rotation": 0, "role": "R_SDA"},
-    {"ref_pattern": "R?", "lib_id": "Device:R", "value": "4.7k", "rel_x": 5.08, "rel_y": 0,    "rotation": 0, "role": "R_SCL"}
+    {"ref_pattern": "R?", "lib_id": "Device:R",    "value": "4.7k", "rel_x": 0,    "rel_y": 0,     "rotation": 0, "role": "R_SDA"},
+    {"ref_pattern": "R?", "lib_id": "Device:R",    "value": "4.7k", "rel_x": 7.62, "rel_y": 0,     "rotation": 0, "role": "R_SCL"},
+    {"ref_pattern": "#PWR?", "lib_id": "power:VCC", "value": "VCC",  "rel_x": 3.81, "rel_y": -8.89, "rotation": 0, "role": "VCC1"}
   ],
   "nets": [
-    {"name": "VCC", "pins": ["R_SDA.2", "R_SCL.2"]},
-    {"name": "SDA", "pins": ["R_SDA.1"]},
-    {"name": "SCL", "pins": ["R_SCL.1"]}
+    {"name": "VCC", "pins": ["R_SDA.1", "R_SCL.1", "VCC1.1"]}
   ],
   "external_pins": [
-    {"label": "SDA", "from": "R_SDA.1", "describe": "pull-up tied to bus master+slaves SDA"},
-    {"label": "SCL", "from": "R_SCL.1", "describe": "pull-up tied to bus master+slaves SCL"},
-    {"label": "VCC", "from": "R_SDA.2", "describe": "supply (also reaches R_SCL.2)"}
+    {"label": "SDA", "from": "R_SDA.2", "describe": "pull-up tied to bus SDA (labelled SDA)"},
+    {"label": "SCL", "from": "R_SCL.2", "describe": "pull-up tied to bus SCL (labelled SCL)"},
+    {"label": "VCC", "from": "R_SDA.1", "describe": "supply (also reaches R_SCL.1); has power:VCC symbol"}
+  ],
+  "wires": [
+    {"x1": 0,    "y1": -6.35, "x2": 3.81, "y2": -6.35},
+    {"x1": 3.81, "y1": -6.35, "x2": 7.62, "y2": -6.35},
+    {"x1": 0,    "y1": -3.81, "x2": 0,    "y2": -6.35},
+    {"x1": 7.62, "y1": -3.81, "x2": 7.62, "y2": -6.35},
+    {"x1": 3.81, "y1": -6.35, "x2": 3.81, "y2": -8.89},
+    {"x1": 0,    "y1": 3.81,  "x2": 0,    "y2": 6.35},
+    {"x1": 7.62, "y1": 3.81,  "x2": 7.62, "y2": 6.35}
+  ],
+  "junctions": [
+    {"x": 3.81, "y": -6.35}
+  ],
+  "labels": [
+    {"name": "SDA", "x": 0,    "y": 6.35, "rotation": 0},
+    {"name": "SCL", "x": 7.62, "y": 6.35, "rotation": 0}
   ]
 }
