@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Context
 
-MCP (Model Context Protocol) server written in Go for Windows. It enables an LLM to design hardware in KiCad 9 by manipulating `.kicad_sch` and `.kicad_pcb` files directly and coordinating with external services.
+MCP (Model Context Protocol) server written in Go for Windows. It enables an LLM to design hardware in KiCad 10 by manipulating `.kicad_sch` and `.kicad_pcb` files directly and coordinating with external services.
+
+**Wire-quality strategy (2026-07):** wires only exist where their geometry is trivial and verifiable — baked template geometry (`place2/templates`), closed-form cluster formulas (`place2/wiregen`), or router output that survives the geometric gate (`place2/gate`). Everything else becomes net labels; power nets are never routed (one power symbol per pin). The gate guarantees zero cross-net crossings, zero wires through symbol bodies, zero collinear overlaps in every output.
 
 ## Documentation
 
@@ -97,6 +99,9 @@ The server exposes MCP tools that an LLM calls to design PCBs. The tool implemen
 | `internal/testutil` | Golden-file utilities (UUID/date normalizer + metric tolerance compare). Used by `cmd/verify_e2e` and `cmd/update_goldens`. |
 | `internal/route2/steiner.go` | Steiner trunk + collinear-group detector. Triggered in `tools/netlist.go::routeNets` for nets with ≥4 colinear pins (≥75% of net). |
 | `internal/place2/metrics` | Objective layout-quality scoring (bends, crossings, wires-through-symbol, total wire length); used by `layout_metrics` tool and `cmd/measure_layout` |
+| `internal/place2/gate` | Geometric quality gate: `Enforce()` demotes any net whose wiring crosses another net, cuts a symbol body or overlaps collinearly → wires replaced by net labels (connectivity preserved). Runs at the end of `connect_netlist` and `relayout`. |
+| `internal/place2/wiregen` | Closed-form cluster wiring (decoupling, 2-pin satellites, dividers, crystal load caps): straight or single-L with clear-corridor preconditions; applies or declines, never searches. Pre-pass in `connect_netlist`. `allowMoves` exists but is off in production. |
+| `internal/sexp/normalize.go` + `internal/tools/sheetfit.go` | Post-relayout rigid translation of all content into the sheet's usable area (≥12.7 mm margins, avoids title block); auto-upgrades paper A4→A3 |
 | `internal/route2` | Next-gen routing layer: A*++ fallback with angular heuristic + cross-prevention; libavoid cgo bindings stubbed for future |
 | `internal/tools` | One file per MCP tool group, implements tool logic |
 | `internal/kicadcli` | Wrapper around `kicad-cli.exe` subprocess calls; violation classifier |
@@ -305,5 +310,7 @@ Daisy-chains pins within each net (pin[0]→pin[1]→…). Auto-inserts junction
 ## Non-Negotiable Rules
 
 - **No regex on KiCad files.** Use the S-expression AST parser (`internal/sexp`) for all reads and writes of `.kicad_sch` and `.kicad_pcb`. Parenthesis integrity is sacred.
+- **Determinism in the placement/routing path.** Never `range` over a Go map in cluster detection, net tracing, placement or routing code — sort keys first (this was the root cause of months of heisenbugs; see `cluster.refOrder` and the sorted net naming in `sexp/nets.go`).
+- **kicad-cli reports go to a file.** `kicad-cli sch erc/drc` writes its JSON report ONLY to the `-o` file, never stdout. Parsing stdout silently yields zero violations (this bug made ERC blind for months).
 - **Fail fast on config.** Validate `config.ini` at startup; call `os.Exit(1)` on any missing required path or key.
 - **Idiomatic Go.** Standard Go style. Comments only where logic is non-obvious.
