@@ -103,6 +103,11 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	// their exact connectivity via net labels instead of wires, which have
 	// no geometry and therefore cannot violate anything.
 	gateResult := gate.Enforce(sch)
+
+	// ERC discipline: give every undriven power-input net a PWR_FLAG so KiCad
+	// does not report "Input Power pin not driven" errors (Goal A). Emitted
+	// after the gate so the flag stubs are never swept up by a demotion.
+	e.ensurePowerFlags(sch)
 	fmt.Fprintf(&sb, "\n%s\n", gateResult.String())
 
 	if err := os.WriteFile(input.SchematicPath, []byte(sch.Serialize()), 0o644); err != nil {
@@ -288,68 +293,20 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		var netNotes []string
 		labeledPoints := make(map[[2]float64]bool)
 
-		// Power-symbol shortcut: if the net name maps to a known power lib_id
+		// Power-rail policy: if the net name maps to a known power lib_id
 		// (GND, VCC, +5V, ±12V…) AND strategy isn't forcing wires, place a
-		// power symbol at every pin instead of routing. This eliminates long
-		// horizontal "GND across the page" wires that clutter schematics —
-		// it's how engineers draw power rails by hand. KiCad treats every
-		// `power:GND` as connected to every other `power:GND` electrically.
+		// power symbol at EVERY pin instead of routing — never point-to-point.
+		// This is how engineers draw power rails by hand: each pin carries its
+		// own #PWR flag (GND below the pin, VCC/+5V above), and KiCad treats
+		// every `power:GND` as electrically joined to every other `power:GND`.
+		// The result is zero long "rail across the page" wires and nothing for
+		// the geometric gate to demote. The emitter dedups pins that snap to a
+		// shared coordinate, so coincident pins collapse to one symbol.
 		if pwrLib := netNameToPowerLibID(conn.Net); pwrLib != "" && strategy != "wire" {
-			// Group pins into clusters where pins within nearDist mm of each
-			// other are connected by a wire and share ONE #PWR symbol; far
-			// pins each get their own #PWR. Keeps decoupling caps physically
-			// connected to their IC pin via a visible wire instead of two
-			// stacked invisible-net columns.
-			const nearDist = 25.4 // mm — anything closer routes as a wire
-			type pwrGroup struct {
-				pins []pinPos
-			}
-			groups := []pwrGroup{}
-			for _, p := range positions {
-				placed := false
-				for gi := range groups {
-					for _, gp := range groups[gi].pins {
-						dx := p.x - gp.x
-						dy := p.y - gp.y
-						if math.Sqrt(dx*dx+dy*dy) <= nearDist {
-							groups[gi].pins = append(groups[gi].pins, p)
-							placed = true
-							break
-						}
-					}
-					if placed {
-						break
-					}
-				}
-				if !placed {
-					groups = append(groups, pwrGroup{pins: []pinPos{p}})
-				}
-			}
-
 			em := e.NewPowerEmitter(sch)
 			pwrPlaced := 0
-			groupWires := 0
-			netComp := compForNet[conn.Net]
-			for _, g := range groups {
-				if len(g.pins) > 1 {
-					// Multi-pin group: route MST among pins (skipping pin pairs
-					// the cluster layer already wired), then drop ONE #PWR at the
-					// first pin so all pins share the same visible rail.
-					for _, seg := range mstSegments(g.pins, netComp) {
-						path := routeWithExits(rt, seg.from.x, seg.from.y, seg.from.dir,
-							seg.to.x, seg.to.y, seg.to.dir)
-						if path != nil {
-							for _, w := range pathToWires(path) {
-								sch.AddWire(w)
-							}
-							rt.MarkWire(path)
-							addTJunctions(sch, path)
-							groupWires += len(path) - 1
-						}
-					}
-				}
-				// One #PWR per group via the unified emitter (dedup-safe).
-				msg, ok, dedup := em.Emit(pwrLib, g.pins[0].ref)
+			for _, p := range positions {
+				msg, ok, dedup := em.Emit(pwrLib, p.ref)
 				if ok && !dedup {
 					pwrPlaced++
 				}
@@ -357,15 +314,13 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 					netNotes = append(netNotes, msg)
 				}
 			}
-
-			tag := "[power]"
-			if pwrPlaced < len(groups) {
-				tag = "[power-partial]"
+			status := ""
+			if len(netNotes) > 0 {
+				status = "  NOTE: " + strings.Join(netNotes, "; ")
 			}
-			fmt.Fprintf(sb, "  %-20s %-15s %s  — %d group(s), %d %s symbol(s), %d wire seg(s)\n",
-				conn.Net, tag, strings.Join(conn.Pins, " · "), len(groups), pwrPlaced, pwrLib, groupWires)
+			fmt.Fprintf(sb, "  %-20s %-15s %s  — %d %s symbol(s)%s\n",
+				conn.Net, "[power]", strings.Join(conn.Pins, " · "), pwrPlaced, pwrLib, status)
 			totalLabels += pwrPlaced
-			totalWires += groupWires
 			continue
 		}
 

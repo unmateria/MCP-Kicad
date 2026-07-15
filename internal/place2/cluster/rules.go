@@ -36,7 +36,8 @@ var rulesByPriority = []rule{
 // toward the power-bearing unit, not the canonical (often signal-only) unit.
 func detectDecoupling(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isIC(sym.LibID) {
 			continue
 		}
@@ -48,7 +49,8 @@ func detectDecoupling(ctx *detectionContext) []Cluster {
 		for _, unit := range units {
 			var caps []string
 			seen := make(map[string]bool)
-			for capRef, capSym := range ctx.symByRef {
+			for _, capRef := range ctx.refOrder {
+				capSym := ctx.symByRef[capRef]
 				if !isCapacitor(capSym.LibID) || seen[capRef] {
 					continue
 				}
@@ -152,7 +154,8 @@ func isNegativeSupplyName(name string) bool {
 // touches. SDA/SCL pull-ups are the canonical case.
 func detectPullup(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isResistor(sym.LibID) {
 			continue
 		}
@@ -200,7 +203,8 @@ func detectPullup(ctx *detectionContext) []Cluster {
 // converters and pi-filters fall out of this naturally.
 func detectLCFilter(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isInductor(sym.LibID) {
 			continue
 		}
@@ -210,7 +214,8 @@ func detectLCFilter(ctx *detectionContext) []Cluster {
 		}
 		// Find a cap connecting to either of the inductor's nets and GND.
 		var partner string
-		for capRef, capSym := range ctx.symByRef {
+		for _, capRef := range ctx.refOrder {
+			capSym := ctx.symByRef[capRef]
 			if !isCapacitor(capSym.LibID) {
 				continue
 			}
@@ -247,7 +252,8 @@ func detectLCFilter(ctx *detectionContext) []Cluster {
 // the MCU. We tolerate either net name.
 func detectCrystal(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isCrystal(sym.LibID) {
 			continue
 		}
@@ -311,7 +317,8 @@ func detectCrystal(ctx *detectionContext) []Cluster {
 // second.
 func detectOpAmpFeedback(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isOpAmp(sym.LibID) {
 			continue
 		}
@@ -353,7 +360,8 @@ func detectOpAmpFeedback(ctx *detectionContext) []Cluster {
 			rank int
 		}
 		var scored []scoredMember
-		for resRef, resSym := range ctx.symByRef {
+		for _, resRef := range ctx.refOrder {
+			resSym := ctx.symByRef[resRef]
 			if !isResistor(resSym.LibID) {
 				continue
 			}
@@ -437,7 +445,8 @@ func isOpAmpOutputPin(num, name string) bool {
 // the + pin, eliminating the visual gap between bias R3 and the op-amp.
 func detectBiasCompensation(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for opRef, opSym := range ctx.symByRef {
+	for _, opRef := range ctx.refOrder {
+		opSym := ctx.symByRef[opRef]
 		if !isOpAmp(opSym.LibID) {
 			continue
 		}
@@ -458,7 +467,8 @@ func detectBiasCompensation(ctx *detectionContext) []Cluster {
 			continue
 		}
 		// Walk resistors and check the topology.
-		for resRef, resSym := range ctx.symByRef {
+		for _, resRef := range ctx.refOrder {
+			resSym := ctx.symByRef[resRef]
 			if !isResistor(resSym.LibID) {
 				continue
 			}
@@ -497,7 +507,8 @@ func detectBiasCompensation(ctx *detectionContext) []Cluster {
 // net.Pins order because TraceNets reorders by union-find iteration.
 func detectIOConnector(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isConnector(sym.LibID) {
 			continue
 		}
@@ -557,7 +568,8 @@ func isOutputNetName(name string) bool {
 func detectVoltageDivider(ctx *detectionContext) []Cluster {
 	var clusters []Cluster
 	resistors := make([]string, 0)
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if isResistor(sym.LibID) {
 			resistors = append(resistors, ref)
 		}
@@ -620,7 +632,8 @@ func detectHeader(ctx *detectionContext) []Cluster {
 	// Pre-compute decoupling-claim set so we don't drag bypass caps into
 	// the header cluster.
 	decoupled := make(map[string]bool)
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isIC(sym.LibID) {
 			continue
 		}
@@ -629,7 +642,8 @@ func detectHeader(ctx *detectionContext) []Cluster {
 			units = []int{1}
 		}
 		for _, unit := range units {
-			for capRef, capSym := range ctx.symByRef {
+			for _, capRef := range ctx.refOrder {
+				capSym := ctx.symByRef[capRef]
 				if !isCapacitor(capSym.LibID) {
 					continue
 				}
@@ -640,7 +654,8 @@ func detectHeader(ctx *detectionContext) []Cluster {
 		}
 	}
 
-	for ref, sym := range ctx.symByRef {
+	for _, ref := range ctx.refOrder {
+		sym := ctx.symByRef[ref]
 		if !isConnector(sym.LibID) {
 			continue
 		}

@@ -682,9 +682,13 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		}
 		layoutCost := baseCost
 
-		// Final dedup + bus alignment of power symbols (P1).
+		// Final dedup of power symbols (P1). Bus alignment is intentionally
+		// NOT applied: the power-rail policy places one #PWR flag per pin with
+		// a short 2.54 mm stub (GND below the pin, VCC/+5V above), and snapping
+		// them to a common Y would detach each flag from its stub — orphaning
+		// the pin. Per-pin flags are the hand-drawn convention here, not a bus.
 		mergedPwr := power.MergePowerSymbols(sch)
-		alignedPwr := power.AlignPowerBus(sch, "", 3)
+		alignedPwr := 0
 
 		// Geometric quality gate (Phase 1): demote any net whose rewiring
 		// crosses another net, crosses itself without a junction, cuts
@@ -693,6 +697,12 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		// labels instead of wires, which have no geometry and therefore
 		// cannot violate anything.
 		gateResult := gate.Enforce(sch)
+
+		// ERC discipline: give every undriven power-input net a PWR_FLAG so
+		// KiCad does not report "Input Power pin not driven" errors (Goal A).
+		// Emitted AFTER the gate so the flag stubs are never swept up when the
+		// gate demotes a neighbouring net.
+		e.ensurePowerFlags(sch)
 
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "relayout complete: moved %d symbols, rotated %d (R/C/L to align with neighbours), removed %d wires, %d no_connect markers, %d labels, %d power symbols (re-added %d power + %d signal labels at new pin positions); power dedup=%d bus-aligned=%d\n",
@@ -1518,7 +1528,7 @@ func (e *Env) handleReadSchematic(_ context.Context, _ *mcp.CallToolRequest, inp
 				pinRef = sym.Reference + "." + pinLabel
 			}
 			fmt.Fprintf(&sb, "         pin %-4s (%-6s): %.2f,%.2f  %-3s  %s  [%s]\n",
-					p.Number, p.Name, p.X, p.Y, directionName(p.Direction), status, pinRef)
+				p.Number, p.Name, p.X, p.Y, directionName(p.Direction), status, pinRef)
 		}
 	}
 	if missing := missingUnits(sch, symbols); len(missing) > 0 {

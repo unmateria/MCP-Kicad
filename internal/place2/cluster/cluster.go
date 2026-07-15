@@ -119,13 +119,17 @@ func Detect(syms []sexp.SchematicSymbol, nets []sexp.Net) []Cluster {
 // CORRECT unit, not aggregated across all units of the IC (which would mask
 // which unit electrically needs the bypass).
 type detectionContext struct {
-	symByRef       map[string]sexp.SchematicSymbol            // bare ref → unit 1 (canonical)
-	symByRefUnit   map[string]sexp.SchematicSymbol            // "REF#unit" → that unit
-	unitsByRef     map[string][]int                           // ref → sorted unit numbers (≥1)
-	netsByRef      map[string][]sexp.Net                      // ref → nets across all units
-	netsByRefUnit  map[string][]sexp.Net                      // "REF#unit" → nets that unit touches
-	netByName      map[string]sexp.Net
-	powerLibIDs    map[string]bool                            // every ref whose lib_id starts with power:
+	symByRef      map[string]sexp.SchematicSymbol // bare ref → unit 1 (canonical)
+	symByRefUnit  map[string]sexp.SchematicSymbol // "REF#unit" → that unit
+	unitsByRef    map[string][]int                // ref → sorted unit numbers (≥1)
+	netsByRef     map[string][]sexp.Net           // ref → nets across all units
+	netsByRefUnit map[string][]sexp.Net           // "REF#unit" → nets that unit touches
+	netByName     map[string]sexp.Net
+	powerLibIDs   map[string]bool // every ref whose lib_id starts with power:
+	// refOrder is the deterministic iteration order over symByRef. Detectors
+	// MUST range over this (not the map directly) so cluster order and
+	// satellite order are identical across runs — Go randomises map iteration.
+	refOrder []string
 }
 
 func newContext(syms []sexp.SchematicSymbol, nets []sexp.Net) *detectionContext {
@@ -146,6 +150,7 @@ func newContext(syms []sexp.SchematicSymbol, nets []sexp.Net) *detectionContext 
 		// First-occurrence-wins for bare-ref (canonical unit, usually 1).
 		if _, ok := ctx.symByRef[s.Reference]; !ok {
 			ctx.symByRef[s.Reference] = s
+			ctx.refOrder = append(ctx.refOrder, s.Reference) // deterministic order
 		}
 		ctx.symByRefUnit[unitKey(s.Reference, u)] = s
 		ctx.unitsByRef[s.Reference] = appendUnique(ctx.unitsByRef[s.Reference], u)

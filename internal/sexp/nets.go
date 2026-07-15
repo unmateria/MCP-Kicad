@@ -2,6 +2,7 @@ package sexp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -64,7 +65,39 @@ func TraceNets(sch *Schematic) []Net {
 			Dangling: len(pins) < 2,
 		})
 	}
+	// Stable output order — rootPins is a map, so without this the net slice
+	// order (and thus routing order, power-emission order, autoConns order in
+	// relayout) would vary run-to-run. Sort by name, then first pin.
+	sort.Slice(nets, func(i, j int) bool {
+		if nets[i].Name != nets[j].Name {
+			return nets[i].Name < nets[j].Name
+		}
+		var pi, pj string
+		if len(nets[i].Pins) > 0 {
+			pi = nets[i].Pins[0].String()
+		}
+		if len(nets[j].Pins) > 0 {
+			pj = nets[j].Pins[0].String()
+		}
+		return pi < pj
+	})
 	return nets
+}
+
+// isRailName reports whether a net name is a recognised power rail (used only
+// to give rail names priority when picking a net's canonical name). Kept in
+// sync with tools.netNameToPowerLibID / cluster rail matchers.
+func isRailName(name string) bool {
+	n := strings.ToUpper(strings.TrimSpace(name))
+	switch n {
+	case "GND", "GND1", "GND2", "GNDA", "GNDD", "GNDPWR", "GNDREF", "GNDS",
+		"EARTH", "0V", "VCC", "VDD", "VEE", "VSS", "VAA", "AVCC", "AVDD", "VBUS":
+		return true
+	}
+	if strings.HasPrefix(n, "+") || strings.HasPrefix(n, "-") {
+		return true
+	}
+	return false
 }
 
 // buildNetUF performs the union-find pass shared by TraceNets and
@@ -125,6 +158,12 @@ func buildNetUF(sch *Schematic) (*netUF, map[[2]float64]string) {
 		if !strings.HasPrefix(sym.LibID, "power:") || len(sym.Pins) == 0 {
 			continue
 		}
+		// PWR_FLAG is a power-library symbol but NOT a rail: it must not join
+		// every other flag into one global net. Its pin connects to the local
+		// net through its stub wire only (unioned in step 1).
+		if sym.LibID == "power:PWR_FLAG" {
+			continue
+		}
 		partName := strings.TrimPrefix(sym.LibID, "power:")
 		pin := sym.Pins[0]
 		p := netPt(pin.X, pin.Y)
@@ -140,9 +179,28 @@ func buildNetUF(sch *Schematic) (*netUF, map[[2]float64]string) {
 		}
 	}
 
-	// 3. Map label name to the root of its net.
+	// 3. Map label name to the root of its net. Iterate names in a stable,
+	// priority-ordered sequence so the canonical name a net ends up with does
+	// NOT depend on Go's randomised map iteration. When several names collide
+	// on the same electrical root (e.g. an explicit "VOUT" label AND an
+	// implicit "+5V" power-symbol name on the regulator output), a recognised
+	// power-rail name wins; ties break alphabetically. Determinism here is
+	// critical: cluster detection keys on rail names, so a flipping name
+	// silently changes the whole downstream layout.
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		ri, rj := isRailName(names[i]), isRailName(names[j])
+		if ri != rj {
+			return ri // rail names first
+		}
+		return names[i] < names[j]
+	})
 	rootLabel := make(map[[2]float64]string)
-	for name, positions := range byName {
+	for _, name := range names {
+		positions := byName[name]
 		root := uf.find(positions[0])
 		if _, exists := rootLabel[root]; !exists {
 			rootLabel[root] = name

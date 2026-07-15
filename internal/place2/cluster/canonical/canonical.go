@@ -190,13 +190,13 @@ func oscillatorRC(syms []sexp.SchematicSymbol, nets []sexp.Net) []cluster.Cluste
 	}
 	var clusters []cluster.Cluster
 	used := map[string]bool{}
-	icSyms := map[string]sexp.SchematicSymbol{}
+	var icRefs []string // ordered so detection is deterministic
 	for _, s := range syms {
 		if isICLib(s.LibID) {
-			icSyms[s.Reference] = s
+			icRefs = append(icRefs, s.Reference)
 		}
 	}
-	for icRef := range icSyms {
+	for _, icRef := range icRefs {
 		// Collect nets that touch an oscillator-named pin of this IC.
 		var oscNets []sexp.Net
 		for _, n := range nets {
@@ -257,18 +257,18 @@ func oscillatorRC(syms []sexp.SchematicSymbol, nets []sexp.Net) []cluster.Cluste
 // (already covered by opamp_feedback in the core; this catches regulator
 // FBs that core misses).
 func feedbackDivider(syms []sexp.SchematicSymbol, nets []sexp.Net) []cluster.Cluster {
-	icByRef := map[string]sexp.SchematicSymbol{}
+	var icRefs []string // ordered so detection is deterministic
 	for _, s := range syms {
 		if isICLib(s.LibID) {
-			icByRef[s.Reference] = s
+			icRefs = append(icRefs, s.Reference)
 		}
 	}
-	if len(icByRef) == 0 {
+	if len(icRefs) == 0 {
 		return nil
 	}
 	var clusters []cluster.Cluster
 	used := map[string]bool{}
-	for icRef := range icByRef {
+	for _, icRef := range icRefs {
 		// Find FB pin and the net it sits on.
 		var fbNet *sexp.Net
 		for ni, n := range nets {
