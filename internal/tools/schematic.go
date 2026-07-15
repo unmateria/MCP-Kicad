@@ -704,6 +704,12 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		// gate demotes a neighbouring net.
 		e.ensurePowerFlags(sch)
 
+		// Sheet normalization: rigid grid-aligned translation so all content
+		// sits inside the paper's usable area (and off the title block when
+		// possible). Runs last — it cannot alter relative geometry, so gate
+		// invariants and connectivity are preserved by construction.
+		fitNote := fitToSheet(sch)
+
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "relayout complete: moved %d symbols, rotated %d (R/C/L to align with neighbours), removed %d wires, %d no_connect markers, %d labels, %d power symbols (re-added %d power + %d signal labels at new pin positions); power dedup=%d bus-aligned=%d\n",
 			movedCount, rotatedCount, removedWires, removedNC, len(removedLabels), len(removedPower), repwrCount, relabelCount, mergedPwr, alignedPwr)
@@ -716,6 +722,9 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 			fmt.Fprintf(&sb, "%s\n", optimizerNote)
 		}
 		fmt.Fprintf(&sb, "%s\n", gateResult.String())
+		if fitNote != "" {
+			fmt.Fprintf(&sb, "%s\n", fitNote)
+		}
 		if len(removedPower) > 0 {
 			sb.WriteString("Removed (then re-placed) power symbols:\n")
 			for _, p := range removedPower {
