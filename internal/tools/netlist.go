@@ -9,7 +9,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"mcp-kicad/internal/place2/cluster"
 	"mcp-kicad/internal/place2/gate"
+	"mcp-kicad/internal/place2/wiregen"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
 )
@@ -52,9 +54,6 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 		return toolText(fmt.Sprintf("error parsing schematic: %v", err)), nil, nil
 	}
 
-	syms := sexp.ReadSymbols(sch)
-	rt := router.NewRouter(syms, sch.Wires())
-
 	// Remember the user's original pin ordering — relayout uses it as a
 	// signal-flow hint when picking DAG sources, instead of falling back to
 	// schematic add-order which has no semantic meaning.
@@ -63,7 +62,40 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "connect_netlist: %d nets\n", len(input.Connections))
 
-	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, input.Connections, strategy, &sb)
+	// Phase 3: parametric cluster wiring. Before the A* router runs, wire the
+	// pins of recognised functional clusters (decoupling, pull-ups, series
+	// LEDs, dividers, crystal load caps) from closed-form geometry. Pins joined
+	// here are removed from the router's work via compForNet; the geometric
+	// gate still runs afterwards as the final safety net. Repositioning may move
+	// satellite symbols, so the router obstacle grid is built AFTER this pass.
+	//
+	// NB: this runs only in connect_netlist, not in relayout. relayout shares
+	// routeNets but its downstream rotation-optimizer (relayout_optimize.go)
+	// strips every wire and re-routes independently via route2, which would
+	// both discard the formula wires and compound any satellite moves — so
+	// relayout passes a nil component map and behaves exactly as before.
+	var compForNet map[string]map[string]int
+	wiregenWires := 0
+	if strategy != "label" {
+		wNets, sNets := buildWiregenInputs(sch, input.Connections)
+		clusters := cluster.Detect(sexp.ReadSymbols(sch), sNets)
+		// allowMoves=false: a repositioned satellite would survive into the
+		// downstream relayout and perturb its placement, so the pipeline only
+		// wires clusters that are already adjacent.
+		res := wiregen.ApplyOpts(sch, clusters, wNets, false)
+		if !res.Empty() {
+			compForNet = buildCompForNet(res.Pairs)
+			wiregenWires = len(res.Wires)
+			fmt.Fprintf(&sb, "  %s\n", res.ReportLine())
+		}
+	}
+
+	// Build the router AFTER wiregen so its obstacle grid reflects moved
+	// symbols and already-placed formula wires (soft obstacles).
+	rt := router.NewRouter(sexp.ReadSymbols(sch), sch.Wires())
+
+	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, input.Connections, strategy, compForNet, &sb)
+	totalWires += wiregenWires
 
 	// Geometric quality gate (Phase 1): demote any net whose wiring crosses
 	// another net, crosses itself without a junction, cuts through a symbol
@@ -219,7 +251,12 @@ type routeSegment struct {
 	from, to pinPos
 }
 
-func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn, strategy string, sb *strings.Builder) (totalWires, totalLabels, totalErrors int) {
+// routeNets accepts an optional compForNet (net name -> pin ref -> component
+// id) produced by the Phase 3 wiregen pre-pass in handleConnectNetlist: pins
+// sharing a component id are already joined by a formula wire, so the router
+// skips them. It is nil for callers that do not run wiregen (e.g. relayout),
+// in which case routing is identical to the pre-Phase-3 behaviour.
+func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn, strategy string, compForNet map[string]map[string]int, sb *strings.Builder) (totalWires, totalLabels, totalErrors int) {
 	for _, conn := range conns {
 		if len(conn.Pins) < 2 {
 			fmt.Fprintf(sb, "  %-20s SKIP  (need at least 2 pins, got %d)\n", conn.Net, len(conn.Pins))
@@ -292,25 +329,15 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 			em := e.NewPowerEmitter(sch)
 			pwrPlaced := 0
 			groupWires := 0
+			netComp := compForNet[conn.Net]
 			for _, g := range groups {
 				if len(g.pins) > 1 {
-					// Multi-pin group: route MST among pins, then drop ONE #PWR
-					// at the first pin so all pins share the same visible rail.
-					connected := []pinPos{g.pins[0]}
-					remaining := append([]pinPos(nil), g.pins[1:]...)
-					for len(remaining) > 0 {
-						bestDist := math.MaxFloat64
-						bestC, bestR := 0, 0
-						for ci, c := range connected {
-							for ri, r := range remaining {
-								d := math.Abs(c.x-r.x) + math.Abs(c.y-r.y)
-								if d < bestDist {
-									bestDist, bestC, bestR = d, ci, ri
-								}
-							}
-						}
-						path := routeWithExits(rt, connected[bestC].x, connected[bestC].y, connected[bestC].dir,
-							remaining[bestR].x, remaining[bestR].y, remaining[bestR].dir)
+					// Multi-pin group: route MST among pins (skipping pin pairs
+					// the cluster layer already wired), then drop ONE #PWR at the
+					// first pin so all pins share the same visible rail.
+					for _, seg := range mstSegments(g.pins, netComp) {
+						path := routeWithExits(rt, seg.from.x, seg.from.y, seg.from.dir,
+							seg.to.x, seg.to.y, seg.to.dir)
 						if path != nil {
 							for _, w := range pathToWires(path) {
 								sch.AddWire(w)
@@ -319,8 +346,6 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 							addTJunctions(sch, path)
 							groupWires += len(path) - 1
 						}
-						connected = append(connected, remaining[bestR])
-						remaining = append(remaining[:bestR], remaining[bestR+1:]...)
 					}
 				}
 				// One #PWR per group via the unified emitter (dedup-safe).
@@ -351,9 +376,19 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		// daisy-chain (positions[i]→positions[i+1]) and avoids long zig-zag routes
 		// when the LLM passes pins in unhelpful order.
 		var segments []routeSegment
-		if len(positions) == 2 {
+		netComp := compForNet[conn.Net]
+		switch {
+		case compHasMultiple(positions, netComp):
+			// Some pins of this net were already wired by the cluster layer;
+			// connect only the remaining components (Steiner is skipped so we
+			// never double-wire a pin the formula layer already handled).
+			segments = mstSegments(positions, netComp)
+		case netComp != nil:
+			// Fully consumed by the cluster layer — nothing left to route.
+			segments = nil
+		case len(positions) == 2:
 			segments = []routeSegment{{positions[0], positions[1]}}
-		} else {
+		default:
 			// Steiner pre-pass: when ≥3 pins of this net are colinear (share an
 			// X or Y axis within 1.27 mm), emit ONE trunk segment + perpendicular
 			// stubs for every pin instead of daisy-chaining MST edges. Cuts
@@ -361,23 +396,7 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 			if seg, ok := steinerSegmentsForNet(positions); ok {
 				segments = seg
 			} else {
-				connected := []pinPos{positions[0]}
-				remaining := append([]pinPos(nil), positions[1:]...)
-				for len(remaining) > 0 {
-					bestDist := math.MaxFloat64
-					bestC, bestR := 0, 0
-					for ci, c := range connected {
-						for ri, r := range remaining {
-							d := math.Abs(c.x-r.x) + math.Abs(c.y-r.y)
-							if d < bestDist {
-								bestDist, bestC, bestR = d, ci, ri
-							}
-						}
-					}
-					segments = append(segments, routeSegment{connected[bestC], remaining[bestR]})
-					connected = append(connected, remaining[bestR])
-					remaining = append(remaining[:bestR], remaining[bestR+1:]...)
-				}
+				segments = mstSegments(positions, nil)
 			}
 		}
 
@@ -429,7 +448,13 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 
 		// When all segments were routed with wires (no labels), place one net label
 		// at the first pin so relayout can discover the net's name via TraceNets.
-		if netLabels == 0 && netWires > 0 && conn.Net != "" {
+		// This must ALSO fire when the wiregen pre-pass consumed pairs of this net
+		// (netComp != nil): a net fully wired by formula produces zero router
+		// segments here (netWires==0), but without a label relayout cannot
+		// rediscover the net and silently drops it, leaving its pins dangling
+		// after the rewire (regression found on demo_voltage_regulator's
+		// LED_NODE, wired entirely by the series_led generator).
+		if netLabels == 0 && (netWires > 0 || netComp != nil) && conn.Net != "" {
 			sch.AddLabel(sexp.NewNetLabel(conn.Net, positions[0].x, positions[0].y, labelRotForDir(positions[0].dir)))
 			netLabels++
 		}

@@ -500,7 +500,10 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		if len(autoConns) > 0 {
 			reconnectSyms := sexp.ReadSymbols(sch)
 			rt := router.NewRouter(reconnectSyms, nil)
-			rWires, rLabels, rErrors = e.routeNets(sch, rt, autoConns, "auto", &reconnectSB)
+			// nil compForNet: relayout does not run the Phase 3 wiregen pre-pass
+			// (its rotation-optimizer re-routes independently), so routing here
+			// stays identical to the pre-Phase-3 behaviour.
+			rWires, rLabels, rErrors = e.routeNets(sch, rt, autoConns, "auto", nil, &reconnectSB)
 		}
 
 		// Re-place removed power symbols at the NEW position of their original
