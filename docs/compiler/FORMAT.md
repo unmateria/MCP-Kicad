@@ -57,6 +57,11 @@ jamás escribe milímetros ni coordenadas absolutas.
   aún no lo soporta (error explícito).
 - Un pin con nombre repetido (pines apilados, p. ej. `U1.VCC` en 4 y 6) resuelve
   al de menor número de pin, determinista.
+- **Multi-unidad**: una parte con varias unidades (NE5532 A/B/C) se declara con
+  un símbolo por unidad — misma `ref`, misma `lib`, `unit` distinto (0/ausente
+  = unidad 1). En `nets` y en `place.at` el pin se califica `"REF.unidad.pin"`
+  (`"U1.2.6"` = unidad 2, pin 6); con una sola unidad valen ambas formas.
+  Repetir el par (ref, unit) o cambiar la `lib` entre unidades es error.
 
 ## `arrange`
 

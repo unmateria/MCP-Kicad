@@ -29,10 +29,14 @@ type Block struct {
 
 // Symbol is one placed component inside an explicit block. The first symbol
 // of a block is the anchor: it sits at the block origin and has Place == nil.
+// Multi-unit parts (dual op-amps etc.) declare one Symbol per unit, sharing
+// ref and lib with distinct units; nets and anchors then qualify the pin as
+// "REF.unit.pin".
 type Symbol struct {
 	Ref    string `json:"ref"`
 	Lib    string `json:"lib"` // KiCad lib_id, e.g. "Device:C"
 	Value  string `json:"value,omitempty"`
+	Unit   int    `json:"unit,omitempty"` // 0/absent = unit 1
 	Place  *Place `json:"place,omitempty"`
 	Rot    *int   `json:"rot,omitempty"` // 0/90/180/270; nil = canonical default per class
 	Mirror bool   `json:"mirror,omitempty"`

@@ -3,6 +3,7 @@ package compile
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ func Resolve(d *Design, sg SymbolGeom, tg TemplateGeom) (*Layout, error) {
 // PinPos returns the absolute position of one pin of an already placed symbol.
 // The pin may be given by number or by name.
 func PinPos(sg SymbolGeom, s PlacedSymbol, pin string) (x, y float64, err error) {
-	dx, dy, err := offsetOf(sg, s.LibID, pin, s.Rot, s.Mirror)
+	dx, dy, err := offsetOf(sg, s.LibID, unitOf(s), pin, s.Rot, s.Mirror)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -48,12 +49,19 @@ func PinPos(sg SymbolGeom, s PlacedSymbol, pin string) (x, y float64, err error)
 // BodyBox returns the absolute body bounding box of an already placed symbol,
 // excluding pin length.
 func BodyBox(sg SymbolGeom, s PlacedSymbol) (x1, y1, x2, y2 float64, err error) {
-	bx1, by1, bx2, by2, err := sg.Body(s.LibID)
+	bx1, by1, bx2, by2, err := sg.Body(s.LibID, unitOf(s))
 	if err != nil {
 		return 0, 0, 0, 0, err
 	}
 	r := transformRect(bx1, by1, bx2, by2, s.Rot, s.Mirror)
 	return r.x1 + s.X, r.y1 + s.Y, r.x2 + s.X, r.y2 + s.Y, nil
+}
+
+func unitOf(s PlacedSymbol) int {
+	if s.Unit < 1 {
+		return 1
+	}
+	return s.Unit
 }
 
 // localBlock is one block resolved in its own frame: the block origin is
@@ -88,7 +96,7 @@ func resolveBlock(b *Block, sg SymbolGeom, tg TemplateGeom) (*localBlock, error)
 // target pin of an already placed symbol.
 func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 	lb := &localBlock{name: b.Name}
-	index := make(map[string]int, len(b.Symbols))
+	index := make(map[string][]int, len(b.Symbols))
 	bodies := make([]rect, 0, len(b.Symbols))
 	var bounds rect
 	haveBounds := false
@@ -107,17 +115,24 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 		if s.Rot != nil {
 			rot = *s.Rot
 		}
-		ps := PlacedSymbol{Ref: s.Ref, LibID: s.Lib, Value: s.Value, Rot: rot, Mirror: s.Mirror}
+		unit := s.Unit
+		if unit < 1 {
+			unit = 1
+		}
+		ps := PlacedSymbol{Ref: s.Ref, LibID: s.Lib, Value: s.Value, Unit: unit, Rot: rot, Mirror: s.Mirror}
 
 		if s.Place != nil {
-			targetRef, targetPin := splitPlaceAt(s.Place.At)
-			ti, ok := index[targetRef]
+			targetRef, rawPin := splitPlaceAt(s.Place.At)
+			tis, ok := index[targetRef]
 			if !ok {
 				return nil, fmt.Errorf("block %q: symbol %s places at %q, but %s is not a symbol declared earlier in this block",
 					b.Name, s.Ref, s.Place.At, targetRef)
 			}
-			target := lb.symbols[ti]
-			tdx, tdy, err := offsetOf(sg, target.LibID, targetPin, target.Rot, target.Mirror)
+			target, targetPin, err := resolveTarget(lb, tis, rawPin)
+			if err != nil {
+				return nil, fmt.Errorf("block %q: symbol %s: target %q: %w", b.Name, s.Ref, s.Place.At, err)
+			}
+			tdx, tdy, err := offsetOf(sg, target.LibID, target.Unit, targetPin, target.Rot, target.Mirror)
 			if err != nil {
 				return nil, fmt.Errorf("block %q: symbol %s: target %q: %w", b.Name, s.Ref, s.Place.At, err)
 			}
@@ -125,7 +140,7 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 			if err != nil {
 				return nil, fmt.Errorf("block %q: symbol %s: %w", b.Name, s.Ref, err)
 			}
-			odx, ody, err := offsetOf(sg, s.Lib, s.Place.Pin, rot, s.Mirror)
+			odx, ody, err := offsetOf(sg, s.Lib, unit, s.Place.Pin, rot, s.Mirror)
 			if err != nil {
 				return nil, fmt.Errorf("block %q: symbol %s: own pin %q: %w", b.Name, s.Ref, s.Place.Pin, err)
 			}
@@ -135,9 +150,9 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 		}
 
 		lb.symbols = append(lb.symbols, ps)
-		index[s.Ref] = i
+		index[s.Ref] = append(index[s.Ref], i)
 
-		bx1, by1, bx2, by2, err := sg.Body(s.Lib)
+		bx1, by1, bx2, by2, err := sg.Body(s.Lib, unit)
 		if err != nil {
 			return nil, fmt.Errorf("block %q: symbol %s: body of %q: %w", b.Name, s.Ref, s.Lib, err)
 		}
@@ -146,12 +161,12 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 		grow(body.x1, body.y1)
 		grow(body.x2, body.y2)
 
-		pins, err := sg.Pins(s.Lib)
+		pins, err := sg.Pins(s.Lib, unit)
 		if err != nil {
 			return nil, fmt.Errorf("block %q: symbol %s: pins of %q: %w", b.Name, s.Ref, s.Lib, err)
 		}
 		for j, pin := range pins {
-			dx, dy, err := offsetOf(sg, s.Lib, pin, rot, s.Mirror)
+			dx, dy, err := offsetOf(sg, s.Lib, unit, pin, rot, s.Mirror)
 			if err != nil {
 				return nil, fmt.Errorf("block %q: symbol %s: pin %q: %w", b.Name, s.Ref, pin, err)
 			}
@@ -247,13 +262,33 @@ func dirVector(dir string, cells int) (dx, dy float64, err error) {
 	return 0, 0, fmt.Errorf("unknown placement direction %q", dir)
 }
 
-func offsetOf(sg SymbolGeom, libID, pin string, rot int, mirror bool) (dx, dy float64, err error) {
-	ox, oy, err := sg.PinOffset(libID, pin)
+func offsetOf(sg SymbolGeom, libID string, unit int, pin string, rot int, mirror bool) (dx, dy float64, err error) {
+	ox, oy, err := sg.PinOffset(libID, unit, pin)
 	if err != nil {
 		return 0, 0, err
 	}
 	x, y := transformOffset(ox, oy, rot, mirror)
 	return x, y, nil
+}
+
+// resolveTarget picks which placed instance of an anchor reference a Place.At
+// refers to. A reference placed as several units requires the "unit.pin"
+// qualified form (e.g. "U1.2.6" → unit 2, pin 6); with a single instance both
+// the plain and the qualified form are accepted.
+func resolveTarget(lb *localBlock, indices []int, rawPin string) (PlacedSymbol, string, error) {
+	if head, rest, ok := strings.Cut(rawPin, "."); ok && rest != "" {
+		if n, err := strconv.Atoi(head); err == nil {
+			for _, i := range indices {
+				if lb.symbols[i].Unit == n {
+					return lb.symbols[i], rest, nil
+				}
+			}
+		}
+	}
+	if len(indices) == 1 {
+		return lb.symbols[indices[0]], rawPin, nil
+	}
+	return PlacedSymbol{}, "", fmt.Errorf("reference has %d placed units; qualify the pin as \"unit.pin\"", len(indices))
 }
 
 // splitPlaceAt splits a Place.At target such as "U1.VCC" into ("U1", "VCC").

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "project": "led_18650",
+  "description": "18650 cell + series resistor + LED",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "led",
+      "symbols": [
+        { "ref": "BT1", "lib": "Device:Battery_Cell", "value": "18650" },
+        { "ref": "R1", "lib": "Device:R", "value": "100", "rot": 90,
+          "place": { "pin": "1", "at": "BT1.+", "dir": "right", "cells": 4 } },
+        { "ref": "D1", "lib": "Device:LED", "value": "LED_RED", "rot": 90,
+          "place": { "pin": "A", "at": "R1.2", "dir": "right", "cells": 3 } }
+      ]
+    }
+  ],
+
+  "nets": {
+    "VBAT":  ["BT1.+", "R1.1"],
+    "ANODE": ["R1.2", "D1.A"],
+    "GND":   ["D1.K", "BT1.-"]
+  },
+
+  "power_nets": { "GND": "power:GND" }
+}

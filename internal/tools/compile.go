@@ -15,6 +15,7 @@ import (
 	"mcp-kicad/internal/place2/gate"
 	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/place2/templates"
+	"mcp-kicad/internal/place2/textplace"
 	"mcp-kicad/internal/place2/wiregen"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
@@ -111,10 +112,14 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 				if err := e.embedLibSymbol(sch, ps.LibID); err != nil {
 					return nil, fmt.Errorf("block %s: %s: %w", pb.Name, ps.Ref, err)
 				}
-				pinNums := extractPinNumbers(sch, ps.LibID, 1)
+				unit := ps.Unit
+				if unit < 1 {
+					unit = 1
+				}
+				pinNums := extractPinNumbers(sch, ps.LibID, unit)
 				libDef := sch.FindLibDef(ps.LibID)
 				sch.AddSymbol(sexp.NewSymbolInstance(ps.LibID, ps.Ref, ps.Value, "",
-					ps.X, ps.Y, float64(ps.Rot), 1, pinNums, sch.UUID(), true, true, libDef))
+					ps.X, ps.Y, float64(ps.Rot), unit, pinNums, sch.UUID(), true, true, libDef))
 				sexp.FixLabelPositions(sch, ps.Ref)
 			}
 			fmt.Fprintf(&sb, "  block %-8s %d symbols\n", pb.Name, len(pb.Symbols))
@@ -204,6 +209,10 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	autoNC := e.applyNoConnects(sch, d, &sb)
 	if len(autoNC) > 0 {
 		fmt.Fprintf(&sb, "auto no_connect (%d pins): %s\n", len(autoNC), strings.Join(autoNC, " "))
+	}
+
+	if moved, flipped := textplace.Autoplace(sch); moved+flipped > 0 {
+		fmt.Fprintf(&sb, "textplace: %d fields repositioned, %d labels flipped\n", moved, flipped)
 	}
 
 	if note := fitToSheet(sch); note != "" {

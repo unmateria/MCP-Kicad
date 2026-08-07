@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "project": "ne5532",
+  "description": "NE5532 stereo dual unity-gain buffer (multi-unit A/B/C)",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "amps",
+      "symbols": [
+        { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 1 },
+
+        { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 2,
+          "place": { "pin": "5", "at": "U1.1.3", "dir": "down", "cells": 8 } },
+
+        { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 3,
+          "place": { "pin": "8", "at": "U1.1.1", "dir": "right", "cells": 10 } },
+
+        { "ref": "C1", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "U1.3.8", "dir": "right", "cells": 6 } },
+        { "ref": "C2", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "2", "at": "U1.3.4", "dir": "right", "cells": 6 } }
+      ]
+    }
+  ],
+
+  "nets": {
+    "OUT_A": ["U1.1.1", "U1.1.2"],
+    "OUT_B": ["U1.2.7", "U1.2.6"],
+    "GND":   ["U1.1.3", "U1.2.5", "C1.2", "C2.1"],
+    "VPP":   ["U1.3.8", "C1.1"],
+    "VMM":   ["U1.3.4", "C2.2"]
+  },
+
+  "power_nets": {
+    "GND": "power:GND",
+    "VPP": "power:+12V",
+    "VMM": "power:-12V"
+  }
+}

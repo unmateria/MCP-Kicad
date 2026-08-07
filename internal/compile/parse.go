@@ -82,8 +82,11 @@ func (nc *NoConnect) UnmarshalJSON(data []byte) error {
 // check nets, power_nets and no_connect once every block has been walked.
 type validator struct {
 	errs     []error
-	refBlock map[string]string // reference -> label of the block that declared it
-	pinNet   map[string]string // "REF.pin" -> name of the net that claims it
+	refBlock map[string]string       // reference -> label of the block that declared it
+	tmplRef  map[string]bool         // references owned by template blocks
+	refLib   map[string]string       // explicit reference -> lib_id (units must agree)
+	refUnits map[string]map[int]bool // explicit reference -> units already declared
+	pinNet   map[string]string       // "REF.pin" -> name of the net that claims it
 }
 
 func (v *validator) errorf(format string, args ...any) {
@@ -93,6 +96,9 @@ func (v *validator) errorf(format string, args ...any) {
 func (d *Design) validate() error {
 	v := &validator{
 		refBlock: make(map[string]string),
+		tmplRef:  make(map[string]bool),
+		refLib:   make(map[string]string),
+		refUnits: make(map[string]map[int]bool),
 		pinNet:   make(map[string]string),
 	}
 
@@ -160,7 +166,7 @@ func (v *validator) templateBlock(b *Block, label string) {
 		case ref == "":
 			v.errorf("%s: refs role %q maps to an empty reference", label, role)
 		default:
-			v.declare(ref, label)
+			v.declareTemplateRef(ref, label)
 		}
 	}
 	for _, port := range sortedKeys(b.Connect) {
@@ -193,6 +199,9 @@ func (v *validator) explicitBlock(b *Block, label string) {
 		if s.Rot != nil && !slices.Contains(validRots, *s.Rot) {
 			v.errorf("%s: rot %d must be 0, 90, 180 or 270", sym, *s.Rot)
 		}
+		if s.Unit < 0 {
+			v.errorf("%s: unit %d must be >= 0", sym, s.Unit)
+		}
 
 		switch {
 		case i == 0 && s.Place != nil:
@@ -204,7 +213,7 @@ func (v *validator) explicitBlock(b *Block, label string) {
 		}
 
 		if s.Ref != "" {
-			v.declare(s.Ref, label)
+			v.declareUnit(s.Ref, s.Lib, s.Unit, label)
 			declared[s.Ref] = true
 		}
 	}
@@ -229,12 +238,47 @@ func (v *validator) place(p *Place, sym, label string, declared map[string]bool)
 	}
 }
 
-func (v *validator) declare(ref, label string) {
+// declareTemplateRef claims a reference for a template block. Template refs
+// are indivisible: any reuse, template or explicit, is an error.
+func (v *validator) declareTemplateRef(ref, label string) {
 	if owner, taken := v.refBlock[ref]; taken {
 		v.errorf("%s: reference %q is already used by %s", label, ref, owner)
 		return
 	}
 	v.refBlock[ref] = label
+	v.tmplRef[ref] = true
+}
+
+// declareUnit claims one unit of an explicit symbol reference. The same
+// reference may be declared several times — one Symbol per unit of a
+// multi-unit part — as long as the units differ and the lib matches.
+func (v *validator) declareUnit(ref, lib string, unit int, label string) {
+	if v.tmplRef[ref] {
+		v.errorf("%s: reference %q is already used by %s", label, ref, v.refBlock[ref])
+		return
+	}
+	if unit < 1 {
+		unit = 1
+	}
+	if prevLib, seen := v.refLib[ref]; seen && lib != "" && prevLib != lib {
+		v.errorf("%s: reference %q is declared with lib %q but was %q earlier", label, ref, lib, prevLib)
+	}
+	if v.refUnits[ref] == nil {
+		v.refUnits[ref] = make(map[int]bool)
+	}
+	if v.refUnits[ref][unit] {
+		v.errorf("%s: reference %q unit %d is declared twice", label, ref, unit)
+		return
+	}
+	v.refUnits[ref][unit] = true
+	if _, seen := v.refBlock[ref]; !seen {
+		v.refBlock[ref] = label
+	}
+	if lib != "" {
+		if _, seen := v.refLib[ref]; !seen {
+			v.refLib[ref] = lib
+		}
+	}
 }
 
 // arrange rejects names that do not match a declared block and repeats: a

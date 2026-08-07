@@ -11,17 +11,18 @@ const BlockMarginCells = 4
 // over internal/sexp by the integration layer so the resolver stays pure and
 // testable with fakes.
 type SymbolGeom interface {
-	// PinOffset returns the position of a pin relative to the symbol origin
-	// at rotation 0 without mirror, in schematic mm (Y grows downward).
-	// The pin may be given by number or by name; a name matching several
-	// stacked pins resolves to the lowest pin number.
-	PinOffset(libID, pin string) (dx, dy float64, err error)
-	// Pins returns all pin numbers of a symbol, sorted numerically where
+	// PinOffset returns the position of a pin of one unit relative to the
+	// symbol origin at rotation 0 without mirror, in schematic mm (Y grows
+	// downward). The pin may be given by number or by name; a name matching
+	// several stacked pins resolves to the lowest pin number. unit <= 1 is
+	// unit 1.
+	PinOffset(libID string, unit int, pin string) (dx, dy float64, err error)
+	// Pins returns all pin numbers of one unit, sorted numerically where
 	// possible. Used for no_connect "unused" expansion and overlap checks.
-	Pins(libID string) ([]string, error)
-	// Body returns the symbol body bounding box (excluding pin length)
+	Pins(libID string, unit int) ([]string, error)
+	// Body returns the unit's body bounding box (excluding pin length)
 	// relative to origin at rotation 0 without mirror.
-	Body(libID string) (x1, y1, x2, y2 float64, err error)
+	Body(libID string, unit int) (x1, y1, x2, y2 float64, err error)
 }
 
 // TemplateGeom exposes the footprint of a baked template so blocks can be
@@ -32,11 +33,12 @@ type TemplateGeom interface {
 	Extent(name string) (x1, y1, x2, y2 float64, err error)
 }
 
-// PlacedSymbol is one symbol with its absolute sheet position resolved.
+// PlacedSymbol is one symbol unit with its absolute sheet position resolved.
 type PlacedSymbol struct {
 	Ref    string
 	LibID  string
 	Value  string
+	Unit   int     // always >= 1
 	X, Y   float64 // symbol origin, absolute mm
 	Rot    int
 	Mirror bool

@@ -45,7 +45,7 @@ func (f fakeGeom) part(libID string) (fakePart, error) {
 // PinOffset resolves by pin number first, then by pin name; a name shared by
 // several stacked pins resolves to the lowest pin number, like the real
 // geometry layer.
-func (f fakeGeom) PinOffset(libID, pin string) (float64, float64, error) {
+func (f fakeGeom) PinOffset(libID string, _ int, pin string) (float64, float64, error) {
 	p, err := f.part(libID)
 	if err != nil {
 		return 0, 0, err
@@ -70,7 +70,7 @@ func (f fakeGeom) PinOffset(libID, pin string) (float64, float64, error) {
 	return 0, 0, fmt.Errorf("symbol %q has no pin %q", libID, pin)
 }
 
-func (f fakeGeom) Pins(libID string) ([]string, error) {
+func (f fakeGeom) Pins(libID string, _ int) ([]string, error) {
 	p, err := f.part(libID)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (f fakeGeom) Pins(libID string) ([]string, error) {
 	return out, nil
 }
 
-func (f fakeGeom) Body(libID string) (float64, float64, float64, float64, error) {
+func (f fakeGeom) Body(libID string, _ int) (float64, float64, float64, float64, error) {
 	p, err := f.part(libID)
 	if err != nil {
 		return 0, 0, 0, 0, err
@@ -221,7 +221,7 @@ func assertOnGrid(t *testing.T, l *Layout, sg SymbolGeom) {
 			continue
 		}
 		for _, s := range b.Symbols {
-			pins, err := sg.Pins(s.LibID)
+			pins, err := sg.Pins(s.LibID, s.Unit)
 			if err != nil {
 				t.Fatalf("Pins(%s): %v", s.LibID, err)
 			}
