@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srwiley/oksvg"
@@ -349,31 +350,44 @@ func svgToPNGEdge(svgPath string) ([]byte, error) {
 	fileURL := "file:///" + strings.ReplaceAll(filepath.ToSlash(absSVG), " ", "%20")
 	shotPath := filepath.Join(tmpDir, "screenshot.png")
 
+	// Modern Edge requires the explicit "new" headless mode and refuses to
+	// run screenshots against a locked default profile — both were silently
+	// killing this path and dropping every render to the text-less oksvg
+	// fallback. The 2x device scale keeps schematic text sharp after the
+	// white-margin crop.
 	cmd := exec.Command(edgeExe,
-		"--headless",
+		"--headless=new",
 		"--disable-gpu",
 		"--no-sandbox",
 		"--hide-scrollbars",
-		"--window-size=1800,1400",
+		"--user-data-dir="+filepath.Join(tmpDir, "profile"),
+		"--force-device-scale-factor=2",
+		"--window-size=3400,2500",
 		"--virtual-time-budget=3000",
 		"--screenshot="+shotPath,
 		fileURL,
 	)
 	cmd.Dir = tmpDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Edge prints "X bytes written to file …" on success but also returns
-		// a non-zero exit on benign warnings. Try reading the file regardless
-		// of err — only fail if the file is missing.
-		if data, rerr := os.ReadFile(shotPath); rerr == nil && len(data) > 0 {
+	out, cmdErr := cmd.CombinedOutput()
+	// Edge's new headless mode hands the screenshot to a child that can
+	// outlive msedge itself: the PNG appears up to a few SECONDS after the
+	// command returns (and Edge exits non-zero on benign warnings anyway).
+	// Reading immediately was silently dropping every render to the
+	// text-less oksvg fallback — poll until the file exists and its size is
+	// stable across two reads.
+	deadline := time.Now().Add(12 * time.Second)
+	lastLen := -1
+	for time.Now().Before(deadline) {
+		data, rerr := os.ReadFile(shotPath)
+		switch {
+		case rerr == nil && len(data) > 0 && len(data) == lastLen:
 			return data, nil
+		case rerr == nil:
+			lastLen = len(data)
 		}
-		return nil, fmt.Errorf("edge: %w\n%s", err, out)
+		time.Sleep(300 * time.Millisecond)
 	}
-	data, err := os.ReadFile(shotPath)
-	if err != nil {
-		return nil, fmt.Errorf("edge produced no screenshot: %w", err)
-	}
-	return data, nil
+	return nil, fmt.Errorf("edge produced no screenshot (err=%v)\n%s", cmdErr, out)
 }
 
 // svgToPNGGo uses the pure-Go oksvg+rasterx renderer as a fallback.
