@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "project": "demo_buck_converter",
+  "description": "Generic buck regulator: LM2596 + L + Schottky + Cin + Cout (legacy demo netlist)",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "buck",
+      "symbols": [
+        { "ref": "U1", "lib": "Regulator_Switching:LM2596S-5", "value": "LM2596-5" },
+
+        { "ref": "C2", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "U1.VIN", "dir": "left", "cells": 4 } },
+        { "ref": "C1", "lib": "Device:C", "value": "470u",
+          "place": { "pin": "1", "at": "C2.1", "dir": "left", "cells": 4 } },
+
+        { "ref": "L1", "lib": "Device:L", "value": "33uH", "rot": 270,
+          "place": { "pin": "1", "at": "U1.~{ON}/OFF", "dir": "down", "cells": 5 } },
+        { "ref": "D1", "lib": "Diode:1N5822", "value": "1N5822", "rot": 270,
+          "place": { "pin": "K", "at": "L1.1", "dir": "down", "cells": 3 } },
+
+        { "ref": "C4", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "L1.2", "dir": "left", "cells": 5 } },
+        { "ref": "C3", "lib": "Device:C", "value": "220u",
+          "place": { "pin": "1", "at": "C4.1", "dir": "left", "cells": 4 } }
+      ]
+    }
+  ],
+
+  "nets": {
+    "VIN":  ["C1.1", "C2.1", "U1.VIN"],
+    "SW":   ["U1.~{ON}/OFF", "L1.1", "D1.K"],
+    "VOUT": ["L1.2", "C3.1", "C4.1", "U1.FB"],
+    "GND":  ["U1.GND", "C1.2", "C2.2", "C3.2", "C4.2", "D1.A"]
+  },
+
+  "power_nets": { "GND": "power:GND" }
+}

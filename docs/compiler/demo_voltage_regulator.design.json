@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "project": "demo_voltage_regulator",
+  "description": "LM7805 with input/output caps + power-on LED indicator",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "power",
+      "template": "voltage_regulator_linear",
+      "refs": {
+        "REG": "U1",
+        "C_IN_BYP": "C1",
+        "C_IN_BULK": "C2",
+        "C_OUT_BYP": "C3",
+        "C_OUT_BULK": "C4",
+        "R_LED": "R1",
+        "LED": "D1"
+      },
+      "connect": { "VIN": "VIN", "VOUT": "+5V" }
+    }
+  ]
+}

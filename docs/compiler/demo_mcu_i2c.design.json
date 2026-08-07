@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "project": "demo_mcu_i2c",
+  "description": "ATmega328 + I2C pull-ups + 4x decoupling caps + 16 MHz crystal",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "mcu",
+      "symbols": [
+        { "ref": "U1", "lib": "MCU_Microchip_ATmega:ATmega328-A", "value": "ATmega328" },
+
+        { "ref": "C1", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "U1.VCC", "dir": "left", "cells": 8 } },
+        { "ref": "C2", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "C1.1", "dir": "left", "cells": 4 } },
+        { "ref": "C3", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "C2.1", "dir": "left", "cells": 4 } },
+        { "ref": "C4", "lib": "Device:C", "value": "10u",
+          "place": { "pin": "1", "at": "C3.1", "dir": "left", "cells": 4 } },
+
+        { "ref": "Y1", "lib": "Device:Crystal", "value": "16MHz",
+          "place": { "pin": "1", "at": "U1.7", "dir": "right", "cells": 5 } },
+        { "ref": "C5", "lib": "Device:C", "value": "22p",
+          "place": { "pin": "1", "at": "Y1.1", "dir": "down", "cells": 2 } },
+        { "ref": "C6", "lib": "Device:C", "value": "22p",
+          "place": { "pin": "1", "at": "Y1.2", "dir": "down", "cells": 2 } }
+      ]
+    },
+
+    {
+      "name": "i2c",
+      "template": "i2c_pullups",
+      "refs": { "R_SDA": "R1", "R_SCL": "R2" },
+      "connect": { "SDA": "SDA", "SCL": "SCL", "VCC": "VCC" }
+    }
+  ],
+
+  "arrange": [
+    ["mcu", "i2c"]
+  ],
+
+  "nets": {
+    "VCC":   ["U1.VCC", "U1.AVCC", "C1.1", "C2.1", "C3.1", "C4.1"],
+    "GND":   ["U1.GND", "C1.2", "C2.2", "C3.2", "C4.2", "C5.2", "C6.2"],
+    "SDA":   ["U1.27"],
+    "SCL":   ["U1.28"],
+    "XTAL1": ["U1.7", "Y1.1", "C5.1"],
+    "XTAL2": ["U1.8", "Y1.2", "C6.1"]
+  },
+
+  "power_nets": { "VCC": "power:VCC", "GND": "power:GND" },
+
+  "no_connect": { "U1": "unused" }
+}
