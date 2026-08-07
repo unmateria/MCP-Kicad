@@ -69,10 +69,11 @@ func (e *Env) handleApplyTemplate(_ context.Context, _ *mcp.CallToolRequest, in 
 		return toolText(fmt.Sprintf("error parsing schematic: %v", err)), nil, nil
 	}
 	stampRes, err := templates.Stamp(sch, tpl, templates.StampOptions{
-		Anchor:    [2]float64{in.AnchorX, in.AnchorY},
-		RefMap:    in.RefMap,
-		PinMap:    in.PinMap,
-		EmbedFunc: func(libID string) error { return e.embedLibSymbol(sch, libID) },
+		Anchor:      [2]float64{in.AnchorX, in.AnchorY},
+		RefMap:      in.RefMap,
+		PinMap:      in.PinMap,
+		EmbedFunc:   func(libID string) error { return e.embedLibSymbol(sch, libID) },
+		PowerLibFor: netNameToPowerLibID,
 	})
 	if err != nil {
 		return toolText(fmt.Sprintf("error stamping: %v", err)), nil, nil

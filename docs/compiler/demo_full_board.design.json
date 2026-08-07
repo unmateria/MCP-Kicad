@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "project": "demo_full_board",
+  "description": "ATmega328 + LM7805 + I2C pull-ups + crystal + LED indicator",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "power",
+      "template": "voltage_regulator_linear",
+      "refs": {
+        "REG": "U2",
+        "C_IN_BYP": "C4",
+        "C_IN_BULK": "C5",
+        "C_OUT_BYP": "C6",
+        "C_OUT_BULK": "C7",
+        "R_LED": "R3",
+        "LED": "D1"
+      },
+      "connect": { "VIN": "VIN", "VOUT": "+5V" }
+    },
+
+    {
+      "name": "mcu",
+      "symbols": [
+        { "ref": "U1", "lib": "MCU_Microchip_ATmega:ATmega328-A", "value": "ATmega328" },
+
+        { "ref": "C1", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "U1.VCC", "dir": "left", "cells": 8 } },
+
+        { "ref": "C2", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "C1.1", "dir": "left", "cells": 4 } },
+
+        { "ref": "C3", "lib": "Device:C", "value": "10u",
+          "place": { "pin": "1", "at": "C2.1", "dir": "left", "cells": 4 } },
+
+        { "ref": "Y1", "lib": "Device:Crystal", "value": "16MHz",
+          "place": { "pin": "1", "at": "U1.7", "dir": "right", "cells": 5 } },
+
+        { "ref": "C8", "lib": "Device:C", "value": "22p",
+          "place": { "pin": "1", "at": "Y1.1", "dir": "down", "cells": 2 } },
+
+        { "ref": "C9", "lib": "Device:C", "value": "22p",
+          "place": { "pin": "1", "at": "Y1.2", "dir": "down", "cells": 2 } }
+      ]
+    },
+
+    {
+      "name": "i2c",
+      "template": "i2c_pullups",
+      "refs": { "R_SDA": "R1", "R_SCL": "R2" },
+      "connect": { "SDA": "SDA", "SCL": "SCL", "VCC": "+5V" }
+    }
+  ],
+
+  "arrange": [
+    ["power"],
+    ["mcu", "i2c"]
+  ],
+
+  "nets": {
+    "+5V":   ["U1.VCC", "U1.AVCC", "C1.1", "C2.1", "C3.1"],
+    "GND":   ["U1.GND", "C1.2", "C2.2", "C3.2", "C8.2", "C9.2"],
+    "SDA":   ["U1.27"],
+    "SCL":   ["U1.28"],
+    "XTAL1": ["U1.7", "Y1.1", "C8.1"],
+    "XTAL2": ["U1.8", "Y1.2", "C9.1"]
+  },
+
+  "power_nets": { "+5V": "power:+5V", "GND": "power:GND" },
+
+  "no_connect": { "U1": "unused" }
+}

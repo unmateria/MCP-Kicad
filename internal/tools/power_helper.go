@@ -3,8 +3,10 @@ package tools
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
+	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/place2/power"
 	"mcp-kicad/internal/sexp"
 )
@@ -84,6 +86,7 @@ func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup
 // TraceNets and the attachment pin is chosen by lowest pin ref.
 func (e *Env) ensurePowerFlags(sch *sexp.Schematic) int {
 	nets := sexp.TraceNets(sch)
+	syms := sexp.ReadSymbols(sch)
 	em := e.NewPowerEmitter(sch)
 	added := 0
 	for _, net := range nets {
@@ -91,7 +94,7 @@ func (e *Env) ensurePowerFlags(sch *sexp.Schematic) int {
 			continue
 		}
 		hasPowerIn, hasDriver := false, false
-		var passiveTgt, anyTgt string
+		var passives, others []string
 		for _, p := range net.Pins {
 			switch p.Electrical {
 			case "power_in":
@@ -106,30 +109,29 @@ func (e *Env) ensurePowerFlags(sch *sexp.Schematic) int {
 				continue
 			}
 			s := p.String()
-			if anyTgt == "" || s < anyTgt {
-				anyTgt = s
-			}
+			others = append(others, s)
 			// Prefer a passive 2-pin part (Device:R/C/L/LED): it sits in open
 			// space away from the IC power pins, so the flag's stub has clean
 			// geometry the gate won't demote.
 			if strings.HasPrefix(p.LibID, "Device:") {
-				if passiveTgt == "" || s < passiveTgt {
-					passiveTgt = s
-				}
+				passives = append(passives, s)
 			}
 		}
 		if !hasPowerIn || hasDriver {
 			continue
 		}
-		target := passiveTgt
-		if target == "" {
-			target = anyTgt
+		cands := passives
+		if len(cands) == 0 {
+			cands = others
 		}
-		if target == "" {
-			target = net.Pins[0].String()
+		if len(cands) == 0 {
+			cands = []string{net.Pins[0].String()}
 		}
-		if _, ok, _ := em.EmitPwrFlag(target); ok {
-			added++
+		sort.Strings(cands)
+		if target := bestFlagSpot(sch, syms, cands); target != "" {
+			if _, ok, _ := em.EmitPwrFlag(target); ok {
+				added++
+			}
 		}
 	}
 	return added
@@ -196,15 +198,52 @@ func (p *PowerEmitter) EmitPwrFlag(targetRef string) (msg string, ok bool, dedup
 	return fmt.Sprintf("placed %s (PWR_FLAG) at (%.2f,%.2f)", ref, sx, sy), true, false
 }
 
+// bestFlagSpot returns the candidate pin ("REF.pin") whose flag position has
+// the widest clearance to every other symbol body. PWR_FLAG carries ~10 mm of
+// text, so it must land where there is room — beside the first pin found it
+// routinely overprints a neighbour (decoupling farms especially). Candidates
+// must be sorted: ties resolve to the lexicographically first, keeping the
+// choice deterministic.
+func bestFlagSpot(sch *sexp.Schematic, syms []sexp.SchematicSymbol, cands []string) string {
+	best, bestScore := "", -1.0
+	for _, c := range cands {
+		pin, ok := sexp.FindPin(sch, c)
+		if !ok {
+			continue
+		}
+		dx, dy := perpOffset(pin.Direction, 2.54)
+		fx, fy := pin.X+dx, pin.Y+dy
+		ref, _, _ := strings.Cut(c, ".")
+		score := math.MaxFloat64
+		for _, s := range syms {
+			if s.Reference == ref {
+				continue
+			}
+			x1, y1, x2, y2 := metrics.BodyBBox(s)
+			ddx := math.Max(0, math.Max(x1-fx, fx-x2))
+			ddy := math.Max(0, math.Max(y1-fy, fy-y2))
+			if d := math.Hypot(ddx, ddy); d < score {
+				score = d
+			}
+		}
+		if score > bestScore {
+			bestScore, best = score, c
+		}
+	}
+	return best
+}
+
 // perpOffset returns a (dx,dy) offset of length d perpendicular to the pin's
-// outgoing direction. Horizontal pins get a downward offset, vertical (or
-// unknown) pins a rightward one — off the axis the pin's own wire occupies.
+// outgoing direction, off the axis the pin's own wire occupies. Horizontal
+// pins get a downward offset. Vertical (or unknown) pins get a LEFTWARD one:
+// KiCad puts reference/value text to the right of vertical two-pin parts, so
+// going right overprints the neighbour's text (seen on decoupling farms).
 func perpOffset(dir, d float64) (dx, dy float64) {
 	switch int(math.Round(dir)) % 360 {
 	case 0, 180:
 		return 0, d
 	default:
-		return d, 0
+		return -d, 0
 	}
 }
 

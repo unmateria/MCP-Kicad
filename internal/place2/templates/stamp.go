@@ -2,6 +2,7 @@ package templates
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"mcp-kicad/internal/sexp"
@@ -9,10 +10,15 @@ import (
 
 // StampOptions controls how a template is materialised into a schematic.
 type StampOptions struct {
-	Anchor    [2]float64        // top-left of the stamp in schematic mm
-	RefMap    map[string]string // role → desired reference (else auto-allocated)
-	PinMap    map[string]string // role-qualified pin (e.g. "R_SDA.1") → external net name
+	Anchor    [2]float64               // top-left of the stamp in schematic mm
+	RefMap    map[string]string        // role → desired reference (else auto-allocated)
+	PinMap    map[string]string        // role-qualified pin (e.g. "R_SDA.1") → external net name
 	EmbedFunc func(libID string) error // resolves Device:R / Device:C / etc. (call site responsibility)
+	// PowerLibFor maps a net name to its canonical power symbol lib_id ("" if
+	// none). When set, a PinMap entry whose template-internal net is driven by
+	// a baked power:* symbol swaps that symbol to the mapped rail instead of
+	// stacking a second net name onto the same wire.
+	PowerLibFor func(netName string) string
 }
 
 // StampResult reports what Stamp added.
@@ -45,6 +51,38 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 	ax := sexp.SnapGrid(opts.Anchor[0])
 	ay := sexp.SnapGrid(opts.Anchor[1])
 
+	// Decide up front how each PinMap entry is realised: swapping the power
+	// symbol that names the internal net, renaming the baked label of the
+	// external pin, or (fallback) dropping an extra label at the pin. Keys are
+	// sorted — map iteration order must never reach the schematic.
+	pinKeys := make([]string, 0, len(opts.PinMap))
+	for k := range opts.PinMap {
+		pinKeys = append(pinKeys, k)
+	}
+	sort.Strings(pinKeys)
+	swapLib := map[string]string{}     // power role → replacement lib_id
+	renameLabel := map[string]string{} // baked label name → external net name
+	realised := map[string]bool{}      // rolePin handled by swap/rename
+	for _, rolePin := range pinKeys {
+		netName := opts.PinMap[rolePin]
+		if opts.PowerLibFor != nil {
+			if lib := opts.PowerLibFor(netName); lib != "" {
+				if role := powerRoleOnNet(tpl, rolePin); role != "" {
+					swapLib[role] = lib
+					realised[rolePin] = true
+					continue
+				}
+			}
+		}
+		for _, ep := range tpl.ExternalPins {
+			if ep.From == rolePin && hasBakedLabel(tpl, ep.Label) {
+				renameLabel[ep.Label] = netName
+				realised[rolePin] = true
+				break
+			}
+		}
+	}
+
 	for _, c := range tpl.Components {
 		var ref string
 		switch {
@@ -68,9 +106,13 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 			res.RoleRefs[c.Role] = ref
 		}
 
+		libID, value := c.LibID, c.Value
+		if nl, ok := swapLib[c.Role]; ok && c.Role != "" {
+			libID, value = nl, strings.TrimPrefix(nl, "power:")
+		}
 		if opts.EmbedFunc != nil {
-			if err := opts.EmbedFunc(c.LibID); err != nil {
-				return res, fmt.Errorf("embed %s: %w", c.LibID, err)
+			if err := opts.EmbedFunc(libID); err != nil {
+				return res, fmt.Errorf("embed %s: %w", libID, err)
 			}
 		}
 		x := ax + c.RelX
@@ -79,16 +121,16 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 		if unit < 1 {
 			unit = 1
 		}
-		libDef := findLibDef(sch, c.LibID)
+		libDef := findLibDef(sch, libID)
 		var pinNums []string
 		if libDef != nil {
 			pinNums = sexp.ExtractPinNumbers(libDef, unit)
 		}
 		// Power symbols (power:*) are virtual: no BOM/board presence, hidden
 		// reference. Every other symbol is a real part.
-		isPower := strings.HasPrefix(c.LibID, "power:")
+		isPower := strings.HasPrefix(libID, "power:")
 		inBom, onBoard := !isPower, !isPower
-		sch.AddSymbol(sexp.NewSymbolInstance(c.LibID, ref, c.Value, "",
+		sch.AddSymbol(sexp.NewSymbolInstance(libID, ref, value, "",
 			x, y, c.Rotation, unit, pinNums, sch.UUID(), inBom, onBoard, libDef))
 		res.PlacedRefs = append(res.PlacedRefs, ref)
 	}
@@ -104,12 +146,21 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 		res.JunctionsAdded++
 	}
 	for _, l := range tpl.Labels {
-		sch.AddLabel(sexp.NewNetLabel(l.Name, ax+l.X, ay+l.Y, l.Rotation))
+		name := l.Name
+		if nn, ok := renameLabel[name]; ok {
+			name = nn
+		}
+		sch.AddLabel(sexp.NewNetLabel(name, ax+l.X, ay+l.Y, l.Rotation))
 		res.LabelsAdded++
 	}
 
-	// External pin labels requested by the caller (renames/extra connections).
-	for rolePin, netName := range opts.PinMap {
+	// External pin labels requested by the caller and not already realised by
+	// a power-symbol swap or a baked-label rename.
+	for _, rolePin := range pinKeys {
+		if realised[rolePin] {
+			continue
+		}
+		netName := opts.PinMap[rolePin]
 		role, pin := splitRolePin(rolePin)
 		ref, ok := roleToRef[role]
 		if !ok {
@@ -125,6 +176,44 @@ func Stamp(sch *sexp.Schematic, tpl Template, opts StampOptions) (StampResult, e
 		res.LabelsAdded++
 	}
 	return res, nil
+}
+
+// powerRoleOnNet returns the role of a power:* component sharing a
+// template-internal net with rolePin, or "" when that net has none.
+func powerRoleOnNet(tpl Template, rolePin string) string {
+	for _, n := range tpl.Nets {
+		onNet := false
+		for _, p := range n.Pins {
+			if p == rolePin {
+				onNet = true
+				break
+			}
+		}
+		if !onNet {
+			continue
+		}
+		for _, p := range n.Pins {
+			role, _ := splitRolePin(p)
+			for _, c := range tpl.Components {
+				if c.Role == role && strings.HasPrefix(c.LibID, "power:") {
+					return role
+				}
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// hasBakedLabel reports whether the template's baked geometry includes a
+// label with the given name.
+func hasBakedLabel(tpl Template, name string) bool {
+	for _, l := range tpl.Labels {
+		if l.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // findLibDef returns the embedded lib_symbols definition for libID, or nil.

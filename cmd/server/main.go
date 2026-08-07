@@ -60,6 +60,7 @@ func main() {
 	tools.RegisterValidationTools(server, env)
 	tools.RegisterExportTools(server, env)
 	tools.RegisterNetlistTools(server, env)
+	tools.RegisterCompileTools(server, env)
 
 	log.SetOutput(os.Stderr)
 	log.Println("mcp-kicad server starting (stdio transport)")
