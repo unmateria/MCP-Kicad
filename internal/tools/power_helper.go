@@ -178,8 +178,12 @@ func (p *PowerEmitter) EmitPwrFlag(targetRef string) (msg string, ok bool, dedup
 	p.reg.Mark(libID, sx, sy)
 	ref := nextFlagRef(p.sch)
 	pinNums := extractPinNumbers(p.sch, libID, 1)
-	p.sch.AddSymbol(sexp.NewSymbolInstance(libID, ref, "PWR_FLAG", "",
-		sx, sy, rot, 1, pinNums, p.sch.UUID(), false, false, nil))
+	flag := sexp.NewSymbolInstance(libID, ref, "PWR_FLAG", "",
+		sx, sy, rot, 1, pinNums, p.sch.UUID(), false, false, nil)
+	// The flag exists for ERC, not for the reader: its ~10 mm of text is
+	// exactly the kind of clutter a hand-drawn schematic never shows.
+	sexp.HidePropertyText(flag, "Value")
+	p.sch.AddSymbol(flag)
 	// Shift the body so the flag's real pin lands on the stub endpoint (sx,sy).
 	for _, s := range sexp.ReadSymbols(p.sch) {
 		if s.Reference == ref && len(s.Pins) > 0 {

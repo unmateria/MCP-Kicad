@@ -16,6 +16,7 @@ import (
 	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/place2/templates"
 	"mcp-kicad/internal/place2/textplace"
+	"mcp-kicad/internal/place2/weld"
 	"mcp-kicad/internal/place2/wiregen"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
@@ -202,8 +203,16 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	totalWires += wiregenWires
 
 	gateResult := gate.Enforce(sch)
+	// Weld after the gate: label pairs that survive with a clean corridor
+	// between them become real wires — humans read wires, not tag pairs.
+	// Every candidate is validated against gate.Check, so this can never
+	// reintroduce a violation the gate just removed.
+	weldResult := weld.Weld(sch)
 	e.ensurePowerFlags(sch)
 	fmt.Fprintf(&sb, "\n%s\n", gateResult.String())
+	if weldResult.Welded+weldResult.LabelsRemoved > 0 {
+		fmt.Fprintf(&sb, "%s\n", weldResult.String())
+	}
 	fmt.Fprintf(&sb, "routing: %d wire segments, %d labels, %d errors\n", totalWires, totalLabels, totalErrors)
 
 	autoNC := e.applyNoConnects(sch, d, &sb)
@@ -309,6 +318,10 @@ func (e *Env) handleCompileSchematic(_ context.Context, _ *mcp.CallToolRequest, 
 func RegisterCompileTools(s *mcp.Server, env *Env) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "compile_schematic",
-		Description: "Compile a declarative .design.json source (blocks, pin-anchored placement, nets) into a complete .kicad_sch with wiring, power symbols, no_connects, ERC and a rendered preview. The source file is the editing surface: to change the schematic, edit the source and recompile.",
+		Description: "Compile a declarative .design.json source (blocks, pin-anchored placement, nets) into a complete .kicad_sch with wiring, power symbols, no_connects, ERC and a rendered preview. The source file is the editing surface: to change the schematic, edit the source and recompile. Read design_guide BEFORE authoring a source.",
 	}, WrapTool(env.Log, "compile_schematic", env.handleCompileSchematic))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "design_guide",
+		Description: "Read-only: the human-schematic design guide for .design.json authors — layout conventions (signal flow, power rails, decoupling farms), wire-vs-label criteria, spacing recipes in grid cells, and the iteration protocol. Read it before writing or editing a design source.",
+	}, WrapTool(env.Log, "design_guide", env.handleDesignGuide))
 }

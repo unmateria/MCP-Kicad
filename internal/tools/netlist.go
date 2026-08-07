@@ -191,6 +191,21 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	return e.withInlinePNG(toolText(sb.String()), input.SchematicPath), nil, nil
 }
 
+// uglyPath reports whether a routed path is too contorted to read as a
+// human-drawn wire: more than 3 bends, or a run that exceeds the Manhattan
+// distance between its endpoints by over 70% plus one grid step of slack.
+func uglyPath(path [][2]float64) bool {
+	if len(path) < 2 {
+		return true
+	}
+	var plen float64
+	for i := 1; i < len(path); i++ {
+		plen += math.Abs(path[i][0]-path[i-1][0]) + math.Abs(path[i][1]-path[i-1][1])
+	}
+	manhattan := math.Abs(path[len(path)-1][0]-path[0][0]) + math.Abs(path[len(path)-1][1]-path[0][1])
+	return len(path)-2 > 3 || plen > 1.7*manhattan+2.54
+}
+
 // wireSpan returns the diagonal of the bounding box containing every wire
 // endpoint, plus the wire count. Used to detect sprawled layouts.
 func wireSpan(sch *sexp.Schematic) (float64, int) {
@@ -353,6 +368,11 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 				usedLabel = true
 			} else {
 				path := routeWithExits(rt, from.x, from.y, from.dir, to.x, to.y, to.dir)
+				if path != nil && strategy == "auto" && uglyPath(path) {
+					// A snaking wire reads worse than a label pair: humans
+					// forgive a label, never a wire that wanders the sheet.
+					path = nil
+				}
 				if path != nil {
 					wires := pathToWires(path)
 					for _, w := range wires {

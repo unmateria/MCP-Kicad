@@ -19,12 +19,12 @@
         { "ref": "C4", "lib": "Device:C", "value": "10u",
           "place": { "pin": "1", "at": "C3.1", "dir": "left", "cells": 4 } },
 
-        { "ref": "Y1", "lib": "Device:Crystal", "value": "16MHz",
-          "place": { "pin": "1", "at": "U1.7", "dir": "right", "cells": 5 } },
-        { "ref": "C5", "lib": "Device:C", "value": "22p",
-          "place": { "pin": "1", "at": "Y1.1", "dir": "down", "cells": 2 } },
-        { "ref": "C6", "lib": "Device:C", "value": "22p",
-          "place": { "pin": "1", "at": "Y1.2", "dir": "down", "cells": 2 } }
+        { "ref": "Y1", "lib": "Device:Crystal", "value": "16MHz", "rot": 270,
+          "place": { "pin": "1", "at": "U1.7", "dir": "right", "cells": 6 } },
+        { "ref": "C5", "lib": "Device:C", "value": "22p", "rot": 90,
+          "place": { "pin": "1", "at": "Y1.1", "dir": "right", "cells": 3 } },
+        { "ref": "C6", "lib": "Device:C", "value": "22p", "rot": 90,
+          "place": { "pin": "1", "at": "Y1.2", "dir": "right", "cells": 3 } }
       ]
     },
 

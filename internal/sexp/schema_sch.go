@@ -141,6 +141,26 @@ func libPropAt(libDef *Node, propName string) (lx, ly, angle float64, found bool
 	return 0, 0, 0, false
 }
 
+// HidePropertyText marks one property of a symbol instance node as hidden —
+// used for text that must exist for KiCad (ERC bookkeeping like PWR_FLAG's
+// value) but only adds noise on the printed schematic.
+func HidePropertyText(symNode *Node, propName string) {
+	for _, child := range symNode.Children {
+		if child.Head() != "property" || StringValue(child, 1) != propName {
+			continue
+		}
+		effects := FindList(child, "effects")
+		if effects == nil {
+			effects = List(Atom("effects"))
+			child.Children = append(child.Children, effects)
+		}
+		if FindList(effects, "hide") == nil {
+			effects.Children = append(effects.Children, List(Atom("hide"), Atom("yes")))
+		}
+		return
+	}
+}
+
 // FixLabelPositions moves the visible Reference and Value properties of all
 // placed instances of `reference` so they sit clearly outside the component's
 // pin bounding box (2.54 mm clearance from the outermost pin, horizontal text).

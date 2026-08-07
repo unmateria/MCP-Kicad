@@ -86,7 +86,8 @@ The server exposes MCP tools that an LLM calls to design PCBs. The tool implemen
 | `internal/compile` | Declarative design compiler: parses `.design.json`, resolves pin-anchored placement into absolute coordinates, produces the layout consumed by `tools/compile.go` |
 | `internal/router` | A* orthogonal grid router (`astar.go`) used by `connect_netlist` and the compiler's routing pass |
 | `internal/place2/cluster` | Functional cluster detection (decoupling caps adjacent to IC, I²C pull-ups, LC filters, crystals + load caps, voltage dividers, op-amp feedback, headers) |
-| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires |
+| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires. KiCad draws a field at (field angle + symbol rotation): fields on 90/270 symbols carry a compensating 90. |
+| `internal/place2/weld` | Label-pair upgrader: same-net islands joined only by labels get a real wire (straight/L/Z) when a clean corridor exists, validated against `gate.Check`; redundant labels removed, one kept as net documentation. Runs after the gate in `compile_schematic`. |
 | `internal/place2/templates` | Substructure library + `Stamp` API used by `apply_template`. Templates: op-amp non-inverting, voltage divider, MCU minimal, LM7805 regulator, I²C pull-ups. |
 | `internal/place2/power` | Unified `#PWR` placer — pin-direction offset 2.54 mm, dedup by (libID, snapped position), bus alignment of same-rail symbols. Three previous power-placement sites in `tools/schematic.go` and `tools/netlist.go` converge here via `Env.NewPowerEmitter`. |
 | `internal/place2/cluster/canonical` | Extra detectors registered via `init()`: `bypass_nonpower`, `series_led`, `oscillator_rc`, `feedback_divider`. Add new ones in `canonical/<kind>.go`. |
@@ -247,7 +248,8 @@ File I/O pattern: `os.ReadFile` → `ParseSchematic`/`ParsePCB` → mutate AST �
 | `check_component_existence` | `components.go` | Local libs → global KiCad libs → SnapEDA fallback (up to 5 results) |
 | `fetch_external_part` | `components.go` | Downloads symbol + footprint to `libs/downloaded/{dest}/` |
 | `register_library` | `components.go` | Appends entry to `sym-lib-table` or `fp-lib-table` |
-| `compile_schematic` | `compile.go` | Compile a `.design.json` source into a complete `.kicad_sch` (placement, wiring, power symbols, no_connects, gate, ERC, PNG preview). The primary authoring path. |
+| `compile_schematic` | `compile.go` | Compile a `.design.json` source into a complete `.kicad_sch` (placement, wiring, power symbols, no_connects, gate, weld, textplace, ERC, PNG preview). The primary authoring path. |
+| `design_guide` | `design_guide.go` | Read-only: human-schematic conventions and spacing recipes for `.design.json` authors (embedded `design_guide.md`). Read before authoring a source. |
 | `modify_schematic` | `schematic.go` | See actions below |
 | `read_schematic` | `schematic.go` | Lists placed symbols + pin positions; ASCII layout grid; connectivity status |
 | `get_connectivity_summary` | `schematic.go` | Full netlist audit: unconnected pins, dangling nets, pin counts |
