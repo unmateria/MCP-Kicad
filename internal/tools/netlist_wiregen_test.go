@@ -131,9 +131,9 @@ func TestWiregenPartialNetRouterCompletes(t *testing.T) {
 // TestWiregenFullNetKeepsDiscoveryLabel is the exact demo_voltage_regulator
 // bug: a 2-pin net FULLY consumed by wiregen produces zero router segments, so
 // the "one label per net" fallback used to be skipped — leaving the net
-// unnamed. relayout rebuilds its connection list from NAMED nets only, so the
-// net was silently dropped and its pins left dangling after the rewire. The
-// label must be present even when the router had nothing left to do.
+// unnamed. Downstream passes rebuild their connection list from NAMED nets
+// only, so the net was silently dropped and its pins left dangling. The label
+// must be present even when the router had nothing left to do.
 func TestWiregenFullNetKeepsDiscoveryLabel(t *testing.T) {
 	body := wgPlaced("Device:LED", "D1", 25.4, 50.8) +
 		wgPlaced("Device:R", "R1", 33.02, 50.8)
@@ -163,6 +163,6 @@ func TestWiregenFullNetKeepsDiscoveryLabel(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("no LED_NODE label found — relayout would drop this net (output:\n%s)", out)
+		t.Fatalf("no LED_NODE label found — the net would be dropped (output:\n%s)", out)
 	}
 }

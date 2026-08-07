@@ -12,10 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"mcp-kicad/internal/layout"
 	"mcp-kicad/internal/parts"
-	"mcp-kicad/internal/place2/gate"
-	"mcp-kicad/internal/place2/power"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
 )
@@ -23,14 +20,14 @@ import (
 // modifySchematicInput defines the parameters for the modify_schematic tool.
 type modifySchematicInput struct {
 	SchematicPath string           `json:"schematic_path"       jsonschema:"Path to the .kicad_sch file"`
-	Action        string           `json:"action"               jsonschema:"create_schematic | add_symbol | add_power_rail | connect_pins | disconnect_pin | add_wire | no_connect | junction | add_label | relayout | batch"`
+	Action        string           `json:"action"               jsonschema:"create_schematic | add_symbol | add_power_rail | connect_pins | disconnect_pin | add_wire | no_connect | junction | add_label | batch"`
 	LibID         string           `json:"lib_id,omitempty"     jsonschema:"[add_symbol] e.g. Device:R or power:GND"`
 	Reference     string           `json:"reference,omitempty"  jsonschema:"[add_symbol] e.g. R1"`
 	Value         string           `json:"value,omitempty"      jsonschema:"[add_symbol] component value, e.g. 100"`
 	MountType     string           `json:"mount_type,omitempty" jsonschema:"[add_symbol] THT or SMD — defaults to THT when omitted"`
 	Footprint     string           `json:"footprint,omitempty"  jsonschema:"[add_symbol] optional override; auto-assigned if empty"`
 	Unit          int              `json:"unit,omitempty"       jsonschema:"[add_symbol] unit number for multi-unit ICs (1, 2, 3...). Default 1."`
-	AutoPlace     bool             `json:"auto_place,omitempty" jsonschema:"[add_symbol] set true to let server compute position automatically. After connections are made, call action=relayout to apply Sugiyama optimal layout."`
+	AutoPlace     bool             `json:"auto_place,omitempty" jsonschema:"[add_symbol] set true to let server compute position automatically (non-overlapping grid slot). Prefer explicit x/y."`
 	Rotation      float64          `json:"rotation,omitempty"   jsonschema:"[add_symbol/add_label] CCW degrees: 0, 90, 180, 270 (default 0)"`
 	X             float64          `json:"x,omitempty"          jsonschema:"[add_symbol/add_wire/no_connect/junction/add_label] X in mm"`
 	Y             float64          `json:"y,omitempty"          jsonschema:"[add_symbol/add_wire/no_connect/junction/add_label] Y in mm"`
@@ -47,7 +44,7 @@ type modifySchematicInput struct {
 // Identical fields to modifySchematicInput except no nested Operations
 // (the MCP SDK cannot generate JSON schemas for recursive types).
 type batchOperation struct {
-	Action    string      `json:"action"               jsonschema:"add_symbol | add_power_rail | connect_pins | disconnect_pin | add_wire | no_connect | junction | add_label | relayout"`
+	Action    string      `json:"action"               jsonschema:"add_symbol | add_power_rail | connect_pins | disconnect_pin | add_wire | no_connect | junction | add_label"`
 	LibID     string      `json:"lib_id,omitempty"`
 	Reference string      `json:"reference,omitempty"`
 	Value     string      `json:"value,omitempty"`
@@ -187,7 +184,7 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		// Placement mode gate — suppressed in batch (caller already chose a mode).
 		if !inBatch && !isPower && !op.AutoPlace && op.X == 0 && op.Y == 0 &&
 			countNonPowerSymbols(existing) == 0 {
-			return "error: provide x/y for manual placement OR set auto_place=true (server picks a grid position; later call relayout)", false
+			return "error: provide x/y for manual placement OR set auto_place=true (server picks a free grid position)", false
 		}
 
 		placeX, placeY := op.X, op.Y
@@ -240,525 +237,6 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 			sexp.FixLabelPositions(sch, op.Reference)
 		}
 		return autoNote + snapNote + overlapNote + symbolAddedMsg(sch, op.Reference, unitN), true
-
-	case "relayout":
-		allSymbols := sexp.ReadSymbols(sch)
-		if len(allSymbols) == 0 {
-			return "relayout: schematic has no symbols", false
-		}
-		var layoutSyms []sexp.SchematicSymbol
-		for _, sym := range allSymbols {
-			if !strings.HasPrefix(sym.LibID, "power:") && sym.LibID != "Device:PWR_FLAG" {
-				layoutSyms = append(layoutSyms, sym)
-			}
-		}
-		nets := sexp.TraceNets(sch)
-
-		// Guard: abort if no named nets exist — relayout uses connection topology
-		// to place symbols, so without connections it produces a useless linear layout
-		// and destroys existing positions.
-		namedNets := 0
-		for _, net := range nets {
-			if !net.Dangling && len(net.Pins) >= 2 && !strings.HasPrefix(net.Name, "Net-(") {
-				namedNets++
-			}
-		}
-		if namedNets == 0 {
-			return "relayout aborted: no named nets found. Relayout uses connection topology to optimize " +
-				"symbol placement — call connect_netlist first, then relayout.", false
-		}
-		// Capture wire/label endpoints BEFORE removing wires — used to filter
-		// orphan pins from the auto-reconnect list. A pin is only truly connected
-		// if its position coincides with a wire endpoint or label position.
-		connectedPts := sexp.WireEndpointSet(sch)
-
-		// Capture user-added signal labels BEFORE the move. Each label sitting
-		// on a pin position belongs semantically to that pin; we record the pin
-		// reference so we can re-place the label at the pin's NEW position
-		// after relayout (otherwise the label would be left floating in dead
-		// space). Labels with no matching pin are dropped.
-		type labelLink struct {
-			Name   string
-			Target string // pin ref like "R1.1"
-		}
-		var labelLinks []labelLink
-		for _, child := range sch.Root().Children {
-			if child.Head() != "label" {
-				continue
-			}
-			lname := sexp.StringValue(child, 1)
-			if lname == "" {
-				lname = sexp.AtomValue(child, 1)
-			}
-			atN := sexp.FindList(child, "at")
-			if atN == nil {
-				continue
-			}
-			lx := sexp.Round2(parseFloat(sexp.AtomValue(atN, 1)))
-			ly := sexp.Round2(parseFloat(sexp.AtomValue(atN, 2)))
-			for _, sym := range allSymbols {
-				if strings.HasPrefix(sym.LibID, "power:") {
-					continue
-				}
-				for _, p := range sym.Pins {
-					if sexp.Round2(p.X) == lx && sexp.Round2(p.Y) == ly {
-						labelLinks = append(labelLinks, labelLink{
-							Name: lname,
-							Target: sexp.PinRef{
-								Reference: sym.Reference,
-								PinNumber: p.Number,
-								PinName:   p.Name,
-								Unit:      sym.Unit,
-							}.String(),
-						})
-					}
-				}
-			}
-		}
-
-		// Capture power-symbol → target-pin links BEFORE the move. Each #PWR
-		// symbol sits exactly on a non-power pin; record that pin so we can
-		// re-place the power symbol at the pin's NEW position after relayout.
-		//
-		// Dedupe by (LibID, Target) — a single pin can't have two stacked
-		// power symbols of the same rail, even if connect_netlist placed two
-		// (e.g. one for the IC pin and one for the cap pin that sat at the
-		// same coordinate).
-		type pwrLink struct {
-			LibID  string // e.g. "power:GND"
-			Target string // pin ref like "U1.1.3"
-		}
-		var pwrLinks []pwrLink
-		seenPwrLink := make(map[[2]string]bool)
-		for _, ps := range allSymbols {
-			if !strings.HasPrefix(ps.LibID, "power:") || len(ps.Pins) == 0 {
-				continue
-			}
-			pwrPin := ps.Pins[0]
-			for _, sym := range allSymbols {
-				if strings.HasPrefix(sym.LibID, "power:") || sym.Reference == ps.Reference {
-					continue
-				}
-				for _, p := range sym.Pins {
-					if sexp.Round2(p.X) == sexp.Round2(pwrPin.X) &&
-						sexp.Round2(p.Y) == sexp.Round2(pwrPin.Y) {
-						target := sexp.PinRef{
-							Reference: sym.Reference,
-							PinNumber: p.Number,
-							PinName:   p.Name,
-							Unit:      sym.Unit,
-						}.String()
-						key := [2]string{ps.LibID, target}
-						if seenPwrLink[key] {
-							continue
-						}
-						seenPwrLink[key] = true
-						pwrLinks = append(pwrLinks, pwrLink{LibID: ps.LibID, Target: target})
-					}
-				}
-			}
-		}
-
-		// PlaceFlow handles cyclic circuits (battery loops etc.) better than
-		// Sugiyama by treating each net's first pin as the upstream source and
-		// ignoring GND-style return nets when building the DAG. We pass the
-		// LLM's original connect_netlist ordering as `intent` — without it,
-		// PlaceFlow would fall back to schematic add-order, which doesn't
-		// reflect signal flow.
-		var intent []layout.IntentNet
-		for _, c := range recallNetlistIntent(op.SchematicPath) {
-			refs := make([]string, 0, len(c.Pins))
-			seen := make(map[string]bool)
-			for _, p := range c.Pins {
-				ref := strings.SplitN(p, ".", 2)[0]
-				if !seen[ref] {
-					seen[ref] = true
-					refs = append(refs, ref)
-				}
-			}
-			intent = append(intent, layout.IntentNet{Name: c.Net, Refs: refs})
-		}
-		positions := layout.PlaceFlow(layoutSyms, nets, intent)
-
-		// Phase B: pull cluster satellites toward their anchor so decoupling
-		// caps land next to their IC, pullups next to the signal owner, etc.
-		// This is a HINT — cluster.Detect is read-only so it can't break
-		// electrical correctness.
-		clusterApplyOnPositions(layoutSyms, nets, positions)
-
-		unitsByRef := make(map[string][]int)
-		for _, sym := range layoutSyms {
-			u := sym.Unit
-			if u <= 0 {
-				u = 1
-			}
-			found := false
-			for _, ex := range unitsByRef[sym.Reference] {
-				if ex == u {
-					found = true
-					break
-				}
-			}
-			if !found {
-				unitsByRef[sym.Reference] = append(unitsByRef[sym.Reference], u)
-			}
-		}
-		for ref := range unitsByRef {
-			sort.Ints(unitsByRef[ref])
-		}
-
-		const unitOffsetY = 22.86 // must match cluster_apply.go's unitOffsetMM
-		movedCount := 0
-		type unitPos struct {
-			ref  string
-			unit int
-			x, y float64
-		}
-		var unitPositions []unitPos
-		for ref, pos := range positions {
-			units := unitsByRef[ref]
-			if len(units) <= 1 {
-				if n := sch.MoveSymbol(ref, pos[0], pos[1]); n > 0 {
-					movedCount++
-					u := 0
-					if len(units) == 1 {
-						u = units[0]
-					}
-					unitPositions = append(unitPositions, unitPos{ref, u, sexp.SnapGrid(pos[0]), sexp.SnapGrid(pos[1])})
-				}
-			} else {
-				for i, u := range units {
-					offsetY := pos[1] + float64(i)*unitOffsetY
-					if n := sch.MoveSymbolUnit(ref, u, pos[0], offsetY); n > 0 {
-						movedCount++
-						unitPositions = append(unitPositions, unitPos{ref, u, sexp.SnapGrid(pos[0]), sexp.SnapGrid(offsetY)})
-					}
-				}
-			}
-		}
-		// Auto-rotate symmetric 2-pin components (R, C, L) so their pins align
-		// with the dominant axis of their connections. This single change
-		// removes most of the L-shaped wire bends that visually clutter
-		// auto-laid-out schematics.
-		rotatedCount := 0
-		for _, sym := range layoutSyms {
-			if !isSymmetric2Pin(sym.LibID) {
-				continue
-			}
-			myPos, ok := positions[sym.Reference]
-			if !ok {
-				continue
-			}
-			neighbours := gatherNeighbourPositions(sym.Reference, nets, positions)
-			desired := inferRotation(neighbours, myPos)
-			if desired < 0 {
-				continue
-			}
-			if sch.SetSymbolRotation(sym.Reference, desired) > 0 {
-				rotatedCount++
-			}
-		}
-
-		removedWires := sch.RemoveWires()
-		removedNC := sch.RemoveNoConnects()
-		sch.RemoveJunctions()
-		removedLabels := sch.RemoveLabels()
-		removedPower := sch.RemovePowerSymbols()
-
-		// Build auto-reconnect connection list from pre-relayout netlist.
-		// Filter each net's pins: only include pins whose ORIGINAL position
-		// coincides with a wire endpoint or label. This prevents orphan pins
-		// (pins that happened to sit at the same coordinate as a wire endpoint
-		// without being intentionally connected) from being auto-routed.
-		// Also drop pins on power symbols — they were just removed; we'll
-		// re-place each via add_power_rail after the routing pass.
-		var autoConns []NetConn
-		for _, net := range nets {
-			if net.Dangling || len(net.Pins) < 2 || strings.HasPrefix(net.Name, "Net-(") {
-				continue
-			}
-			var connPins []string
-			for _, p := range net.Pins {
-				if strings.HasPrefix(p.LibID, "power:") {
-					continue
-				}
-				px, py := findPinInSymbols(allSymbols, p)
-				key := [2]float64{sexp.Round2(px), sexp.Round2(py)}
-				if connectedPts[key] {
-					connPins = append(connPins, p.String())
-				}
-			}
-			if len(connPins) < 2 {
-				continue
-			}
-			autoConns = append(autoConns, NetConn{Net: net.Name, Pins: connPins})
-		}
-
-		// Auto-reconnect: route all named nets with a fresh router (no prior wires).
-		var reconnectSB strings.Builder
-		rWires, rLabels, rErrors := 0, 0, 0
-		if len(autoConns) > 0 {
-			reconnectSyms := sexp.ReadSymbols(sch)
-			rt := router.NewRouter(reconnectSyms, nil)
-			// nil compForNet: relayout does not run the Phase 3 wiregen pre-pass
-			// (its rotation-optimizer re-routes independently), so routing here
-			// stays identical to the pre-Phase-3 behaviour.
-			rWires, rLabels, rErrors = e.routeNets(sch, rt, autoConns, "auto", nil, &reconnectSB)
-		}
-
-		// Re-place removed power symbols at the NEW position of their original
-		// target pin. Same-rail pins that ended up close together (within
-		// 25mm — e.g. C1.1 and U1.3.V+ after cluster pull) are connected by
-		// an explicit wire and share ONE #PWR symbol, instead of getting two
-		// stacked invisible-net columns.
-		repwrCount := 0
-		const nearDist = 25.4
-
-		// Build groups per lib_id of (target → resolved pin) entries.
-		type linkResolved struct {
-			link pwrLink
-			x, y float64
-			dir  float64
-			ok   bool
-		}
-		byLib := make(map[string][]linkResolved)
-		for _, link := range pwrLinks {
-			pin, ok := sexp.FindPin(sch, link.Target)
-			if !ok {
-				byLib[link.LibID] = append(byLib[link.LibID], linkResolved{link: link})
-				continue
-			}
-			byLib[link.LibID] = append(byLib[link.LibID], linkResolved{
-				link: link, x: pin.X, y: pin.Y, dir: pin.Direction, ok: true,
-			})
-		}
-
-		repwrRouter := router.NewRouter(sexp.ReadSymbols(sch), sch.Wires())
-		emitter := e.NewPowerEmitter(sch)
-		for lib, items := range byLib {
-			// Group by proximity.
-			type grp struct{ items []linkResolved }
-			var groups []grp
-			for _, it := range items {
-				if !it.ok {
-					groups = append(groups, grp{items: []linkResolved{it}})
-					continue
-				}
-				placed := false
-				for gi := range groups {
-					for _, gp := range groups[gi].items {
-						if !gp.ok {
-							continue
-						}
-						dx := it.x - gp.x
-						dy := it.y - gp.y
-						if math.Sqrt(dx*dx+dy*dy) <= nearDist {
-							groups[gi].items = append(groups[gi].items, it)
-							placed = true
-							break
-						}
-					}
-					if placed {
-						break
-					}
-				}
-				if !placed {
-					groups = append(groups, grp{items: []linkResolved{it}})
-				}
-			}
-			for _, g := range groups {
-				if len(g.items) > 1 {
-					// Multi-pin group: route MST among them.
-					resolved := g.items
-					connectedIdx := []int{0}
-					remainingIdx := make([]int, 0, len(resolved)-1)
-					for i := 1; i < len(resolved); i++ {
-						remainingIdx = append(remainingIdx, i)
-					}
-					for len(remainingIdx) > 0 {
-						bestDist := math.MaxFloat64
-						bestC, bestRi := 0, 0
-						for ci, c := range connectedIdx {
-							a := resolved[c]
-							for ri, ridx := range remainingIdx {
-								b := resolved[ridx]
-								d := math.Abs(a.x-b.x) + math.Abs(a.y-b.y)
-								if d < bestDist {
-									bestDist, bestC, bestRi = d, ci, ri
-								}
-							}
-						}
-						a := resolved[connectedIdx[bestC]]
-						b := resolved[remainingIdx[bestRi]]
-						path := repwrRouter.Route(a.x, a.y, b.x, b.y)
-						if path != nil {
-							for _, w := range pathToWires(path) {
-								sch.AddWire(w)
-							}
-							repwrRouter.MarkWire(path)
-						}
-						connectedIdx = append(connectedIdx, remainingIdx[bestRi])
-						remainingIdx = append(remainingIdx[:bestRi], remainingIdx[bestRi+1:]...)
-					}
-				}
-				// One #PWR per group via the unified emitter; dedup is automatic.
-				msg, ok, dedup := emitter.Emit(lib, g.items[0].link.Target)
-				if ok && !dedup {
-					repwrCount++
-				}
-				if !ok {
-					fmt.Fprintf(&reconnectSB, "  power re-add %s → %s FAILED: %s\n", lib, g.items[0].link.Target, msg)
-				}
-			}
-		}
-
-		// Re-place user-added signal labels (VIN, VOUT, CLK, etc.) at the
-		// NEW position of their target pin — they would otherwise be removed
-		// by RemoveLabels above and lost forever. Skipping any whose name
-		// matches an auto-net we already re-routed (avoids double labels).
-		autoLabelNames := make(map[string]bool)
-		for _, c := range autoConns {
-			autoLabelNames[c.Net] = true
-		}
-		relabelCount := 0
-		for _, link := range labelLinks {
-			if autoLabelNames[link.Name] {
-				continue // already re-added by routeNets
-			}
-			pos, ok := sexp.FindPin(sch, link.Target)
-			if !ok {
-				continue
-			}
-			// Place the label AT the pin tip, but rotate the label so its
-			// text reads outward (away from the symbol body) instead of
-			// landing inside the symbol.
-			labelRot := 0.0
-			switch int(math.Round(pos.Direction)) % 360 {
-			case 0:
-				labelRot = 0 // east — text reads right
-			case 90:
-				labelRot = 90
-			case 180:
-				labelRot = 180
-			case 270:
-				labelRot = 270
-			}
-			sch.AddLabel(sexp.NewNetLabel(link.Name, pos.X, pos.Y, labelRot))
-			relabelCount++
-		}
-
-		sort.Slice(unitPositions, func(i, j int) bool {
-			if unitPositions[i].ref != unitPositions[j].ref {
-				return unitPositions[i].ref < unitPositions[j].ref
-			}
-			return unitPositions[i].unit < unitPositions[j].unit
-		})
-		// Score the deterministic layout first, then run the optimizer to
-		// probe alternative rotations. If the optimizer finds a layout with
-		// ≥5% lower total cost, swap it in via ReplaceRoot — otherwise the
-		// deterministic result is kept.
-		baseCost := scoreSchematicLayout(sch)
-		optimizerNote := ""
-		if len(autoConns) > 0 {
-			// Convert pwrLinks (captured pre-relayout) into a flat list the
-			// optimizer can use to re-place ALL power symbols after applying
-			// rotation overrides — not only the ones that survived dedupe.
-			optPwr := make([]optPwrLink, 0, len(pwrLinks))
-			for _, l := range pwrLinks {
-				optPwr = append(optPwr, optPwrLink{LibID: l.LibID, Target: l.Target})
-			}
-			baseBytes := []byte(sch.Serialize())
-			winnerBytes, optBreakdown, tried, ok := e.optimizeRotations(baseBytes, autoConns, optPwr)
-			if ok {
-				if newSch, err := sexp.ParseSchematic(string(winnerBytes)); err == nil {
-					sch.ReplaceRoot(newSch.Root())
-					optimizerNote = fmt.Sprintf("Optimizer: tried %d candidates → improved from %d to %d/100 score",
-						tried, baseCost.Score100(), optBreakdown.Score100())
-					baseCost = optBreakdown
-				}
-			} else {
-				optimizerNote = fmt.Sprintf("Optimizer: tried %d candidates, kept deterministic layout", tried)
-			}
-		}
-		layoutCost := baseCost
-
-		// Final dedup of power symbols (P1). Bus alignment is intentionally
-		// NOT applied: the power-rail policy places one #PWR flag per pin with
-		// a short 2.54 mm stub (GND below the pin, VCC/+5V above), and snapping
-		// them to a common Y would detach each flag from its stub — orphaning
-		// the pin. Per-pin flags are the hand-drawn convention here, not a bus.
-		mergedPwr := power.MergePowerSymbols(sch)
-		alignedPwr := 0
-
-		// Geometric quality gate (Phase 1): demote any net whose rewiring
-		// crosses another net, crosses itself without a junction, cuts
-		// through a symbol body, or overlaps another net's wire
-		// collinearly. Demoted nets keep their exact connectivity via net
-		// labels instead of wires, which have no geometry and therefore
-		// cannot violate anything.
-		gateResult := gate.Enforce(sch)
-
-		// ERC discipline: give every undriven power-input net a PWR_FLAG so
-		// KiCad does not report "Input Power pin not driven" errors (Goal A).
-		// Emitted AFTER the gate so the flag stubs are never swept up when the
-		// gate demotes a neighbouring net.
-		e.ensurePowerFlags(sch)
-
-		// Sheet normalization: rigid grid-aligned translation so all content
-		// sits inside the paper's usable area (and off the title block when
-		// possible). Runs last — it cannot alter relative geometry, so gate
-		// invariants and connectivity are preserved by construction.
-		fitNote := fitToSheet(sch)
-
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "relayout complete: moved %d symbols, rotated %d (R/C/L to align with neighbours), removed %d wires, %d no_connect markers, %d labels, %d power symbols (re-added %d power + %d signal labels at new pin positions); power dedup=%d bus-aligned=%d\n",
-			movedCount, rotatedCount, removedWires, removedNC, len(removedLabels), len(removedPower), repwrCount, relabelCount, mergedPwr, alignedPwr)
-		fmt.Fprintf(&sb, "Layout score: %d/100  (wirelen=%.0fmm, crossings=%d, body-hits=%d, body-overlaps=%d, body-clearance=%d, label-hits=%d, axis-aligned-pairs=%d, whitespace-var=%.1f, sym-dev=%.1f, total-cost=%.0f)\n",
-			layoutCost.Score100(), layoutCost.WireLength, layoutCost.WireCrossings,
-			layoutCost.WireBodyHits, layoutCost.BodyOverlaps, layoutCost.WireBodyClear,
-			layoutCost.LabelHits, layoutCost.AxisAlignBonus, layoutCost.WhitespaceVar,
-			layoutCost.SymmetryDev, layoutCost.Total)
-		if optimizerNote != "" {
-			fmt.Fprintf(&sb, "%s\n", optimizerNote)
-		}
-		fmt.Fprintf(&sb, "%s\n", gateResult.String())
-		if fitNote != "" {
-			fmt.Fprintf(&sb, "%s\n", fitNote)
-		}
-		if len(removedPower) > 0 {
-			sb.WriteString("Removed (then re-placed) power symbols:\n")
-			for _, p := range removedPower {
-				fmt.Fprintf(&sb, "  %-10s %-20s @ %.2f, %.2f\n", p.Reference, p.LibID, p.X, p.Y)
-			}
-		}
-		fmt.Fprintf(&sb, "\nAuto-reconnect (%d nets): %d wire segments, %d net labels, %d errors.\n",
-			len(autoConns), rWires, rLabels, rErrors)
-		sb.WriteString(reconnectSB.String())
-		sb.WriteString("\nNew symbol positions:\n")
-		for _, up := range unitPositions {
-			if up.unit > 0 {
-				fmt.Fprintf(&sb, "  %-8s unit %d @ %.2f, %.2f\n", up.ref, up.unit, up.x, up.y)
-			} else {
-				fmt.Fprintf(&sb, "  %-8s @ %.2f, %.2f\n", up.ref, up.x, up.y)
-			}
-		}
-		// Pin positions for all non-power symbols.
-		allSymsAfter := sexp.ReadSymbols(sch)
-		sb.WriteString("\nPin positions:\n")
-		for _, sym := range allSymsAfter {
-			if strings.HasPrefix(sym.LibID, "power:") || sym.LibID == "Device:PWR_FLAG" {
-				continue
-			}
-			for _, pin := range sym.Pins {
-				name := pin.Name
-				if name == "" || name == "~" {
-					name = pin.Number
-				}
-				fmt.Fprintf(&sb, "  %s.%s@%.2f,%.2f", sym.Reference, name, pin.X, pin.Y)
-			}
-			sb.WriteString("\n")
-		}
-		return sb.String(), true
 
 	case "connect_pins":
 		if op.From == "" || op.To == "" {
@@ -833,7 +311,7 @@ func (e *Env) applyOp(sch *sexp.Schematic, op modifySchematicInput, inBatch bool
 		return "add_power_rail: " + msg, ok
 
 	default:
-		return fmt.Sprintf("unknown action %q — valid actions: create_schematic, add_symbol, add_power_rail, connect_pins, disconnect_pin, add_wire, no_connect, junction, add_label, relayout, batch", op.Action), false
+		return fmt.Sprintf("unknown action %q — valid actions: create_schematic, add_symbol, add_power_rail, connect_pins, disconnect_pin, add_wire, no_connect, junction, add_label, batch", op.Action), false
 	}
 }
 
@@ -1085,90 +563,6 @@ func countNonPowerSymbols(syms []sexp.SchematicSymbol) int {
 	return n
 }
 
-// isSymmetric2Pin returns true for KiCad lib_ids whose pins are interchangeable
-// and whose body has no inherent left-right or top-bottom direction. Auto-rotation
-// targets only these — for asymmetric parts (LEDs, diodes, transistors) the LLM
-// must choose orientation explicitly because anode/cathode/etc. matters.
-func isSymmetric2Pin(libID string) bool {
-	switch libID {
-	case "Device:R", "Device:R_Small", "Device:R_US",
-		"Device:C", "Device:C_Small",
-		"Device:L", "Device:L_Small",
-		"Device:R_Variable", "Device:Ferrite_Bead":
-		return true
-	}
-	return false
-}
-
-// inferRotation picks a horizontal (90°) or vertical (0°) orientation for a
-// symmetric 2-pin component based on where its connected neighbours sit
-// relative to it. If neighbours are dominantly to the left/right, the
-// resistor lays horizontally; if above/below, it stays vertical. Returns -1
-// when the geometry isn't decisive (caller keeps the existing rotation).
-func inferRotation(neighbourPositions [][2]float64, myPos [2]float64) float64 {
-	if len(neighbourPositions) == 0 {
-		return -1
-	}
-	var dx, dy float64
-	for _, np := range neighbourPositions {
-		dx += math.Abs(np[0] - myPos[0])
-		dy += math.Abs(np[1] - myPos[1])
-	}
-	const ratio = 1.5
-	if dx > dy*ratio {
-		return 90 // horizontal: pin 1 west, pin 2 east
-	}
-	if dy > dx*ratio {
-		return 0
-	}
-	return -1
-}
-
-// gatherNeighbourPositions returns the layout positions of every component
-// (other than `ref` itself) that shares a non-power net with `ref`. Power-rail
-// nets are skipped because they connect to symbols (#PWR) that aren't placed
-// by PlaceFlow.
-//
-// For multi-unit neighbours we prefer the unit-specific position
-// ("REF#unit") when present in the map — that's where the pin actually lives
-// after relayout. Falls back to the bare ref position for single-unit
-// symbols.
-func gatherNeighbourPositions(ref string, nets []sexp.Net, positions map[string][2]float64) [][2]float64 {
-	var out [][2]float64
-	seen := map[string]bool{ref: true}
-	for _, net := range nets {
-		on := false
-		for _, p := range net.Pins {
-			if p.Reference == ref {
-				on = true
-				break
-			}
-		}
-		if !on {
-			continue
-		}
-		for _, p := range net.Pins {
-			if seen[p.Reference] {
-				continue
-			}
-			seen[p.Reference] = true
-			unit := p.Unit
-			if unit <= 0 {
-				unit = 1
-			}
-			unitKey := unitPosKey(p.Reference, unit)
-			if pos, ok := positions[unitKey]; ok {
-				out = append(out, pos)
-				continue
-			}
-			if pos, ok := positions[p.Reference]; ok {
-				out = append(out, pos)
-			}
-		}
-	}
-	return out
-}
-
 // missingUnits returns, for every multi-unit IC reference in the schematic,
 // the list of unit numbers that have NOT been placed yet. Returns an empty
 // map when every multi-unit IC is fully populated.
@@ -1212,7 +606,7 @@ func missingUnits(sch *sexp.Schematic, symbols []sexp.SchematicSymbol) map[strin
 	return out
 }
 
-// parseFloat is a small wrapper used by relayout's label-capture pass to read
+// parseFloat is a small wrapper used by the AST readers to read
 // raw atom values without pulling strconv into every call site.
 func parseFloat(s string) float64 {
 	v, _ := strconv.ParseFloat(s, 64)
@@ -1237,21 +631,6 @@ func nearestEndpoint(x, y float64, pts [][2]float64, maxDist float64) ([3]float6
 		return [3]float64{}, false
 	}
 	return best, true
-}
-
-// findPinInSymbols looks up a pin's absolute position from the pre-read symbols slice.
-func findPinInSymbols(syms []sexp.SchematicSymbol, p sexp.PinRef) (x, y float64) {
-	for _, sym := range syms {
-		if sym.Reference != p.Reference {
-			continue
-		}
-		for _, pin := range sym.Pins {
-			if pin.Number == p.PinNumber {
-				return pin.X, pin.Y
-			}
-		}
-	}
-	return 0, 0
 }
 
 // autoPlacePosition computes the next grid position for auto_place mode.
@@ -1905,11 +1284,6 @@ func RegisterSchematicTools(s *mcp.Server, env *Env) {
 	}, WrapTool(env.Log, "add_label", env.handleAddLabelTool))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "relayout",
-		Description: "Apply Sugiyama left-to-right layout to non-power symbols based on net topology, then auto-reconnect all named nets. REQUIRES at least one named net — call connect_netlist first. Removes existing wires/labels/junctions/power symbols and re-routes.",
-	}, WrapTool(env.Log, "relayout", env.handleRelayoutTool))
-
-	mcp.AddTool(s, &mcp.Tool{
 		Name:        "batch_schematic",
 		Description: "Run multiple actions atomically in one file write. Stops on the first error. Use for adding many symbols at once or scripted setups.",
 	}, WrapTool(env.Log, "batch_schematic", env.handleBatchSchematic))
@@ -1926,12 +1300,12 @@ func RegisterSchematicTools(s *mcp.Server, env *Env) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kicad_workflow_help",
-		Description: "Read once at the start of a session. Returns the recommended workflow: create_schematic → batch_schematic add symbols (auto_place=true) → connect_netlist (strategy=auto) → relayout → add_power_rail for power pins → validate_design ERC → export_schematic_image.",
+		Description: "Read once at the start of a session. Returns the recommended workflow: write a .design.json source → compile_schematic → inspect PNG/ERC → iterate on the source.",
 	}, WrapTool(env.Log, "kicad_workflow_help", env.handleWorkflowHelp))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "cluster_components",
-		Description: "Read-only — list functional clusters detected in the current schematic (decoupling caps near IC, I²C pull-ups, LC filters, crystal+load caps, voltage dividers, op-amp feedback, header neighbours). Useful to understand why relayout will group certain symbols together.",
+		Description: "Read-only — list functional clusters detected in the current schematic (decoupling caps near IC, I²C pull-ups, LC filters, crystal+load caps, voltage dividers, op-amp feedback, header neighbours). Useful to understand which symbols the compiler wires from closed-form geometry.",
 	}, WrapTool(env.Log, "cluster_components", env.handleClusterComponents))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -1941,7 +1315,7 @@ func RegisterSchematicTools(s *mcp.Server, env *Env) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "layout_metrics",
-		Description: "Read-only — compute layout-quality metrics (bend count, crossings, wires-through-symbol, total wire length, density). Use to track regression vs baseline after relayout.",
+		Description: "Read-only — compute layout-quality metrics (bend count, crossings, wires-through-symbol, total wire length, density). Use to track regression vs baseline after editing a design source.",
 	}, WrapTool(env.Log, "layout_metrics", env.handleLayoutMetrics))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -1961,26 +1335,23 @@ func RegisterSchematicTools(s *mcp.Server, env *Env) {
 func (e *Env) handleWorkflowHelp(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	return toolText(`KiCad MCP — recommended workflow
 
-1. create_schematic(path)
-2. batch_schematic — add every component with auto_place=true so the server picks
-   non-overlapping grid positions automatically. Multi-unit ICs (NE5532, LM358):
-   add one entry per unit with the SAME reference and unit=1, unit=2, …
-3. connect_netlist(strategy=auto) — pass the full netlist as one call. The router
-   draws wires; long routes fall back to net labels.
-4. relayout — Sugiyama layout based on actual connections. Wires/power symbols
-   are re-routed automatically. Skip if your manual placement is already good.
-5. add_power_rail for every power pin (GND, VCC, ±12V…) using the pin position
-   reported by add_symbol or read_schematic.
-6. get_connectivity_summary — sanity check: 0 unconnected pins, no near-misses,
-   no missing multi-unit gaps. Mark intentionally-unused pins with no_connect.
-7. validate_design (ERC) — must show 0 errors before export.
-8. export_schematic_image — render PNG to OutputDir.
+1. Write a .design.json source (blocks, pin-anchored placement, nets). The format
+   is documented in docs/compiler/FORMAT.md; docs/compiler/*.design.json are the
+   canonical worked examples.
+2. compile_schematic(design_path) — one call produces the .kicad_sch with wiring,
+   power symbols, no_connects, ERC and a rendered preview.
+3. Inspect the returned PNG and the ERC section of the report.
+4. Iterate on the SOURCE and recompile. The .kicad_sch is a build artifact —
+   never hand-edit it, your changes are lost on the next compile.
+
+The per-action tools below (create_schematic, add_symbol, connect_pins, …) are
+the low-level surface. Use them to inspect or patch an existing schematic that
+has no design source, not to author a new one.
 
 Common LLM mistakes:
+• Editing the generated .kicad_sch instead of the .design.json source.
 • Computing pin coords by hand. Always use the coords printed by add_symbol /
   read_schematic; the resistor pin tip is at body_y ± 3.81 mm, not body_y.
-• Forgetting multi-unit ICs. NE5532 has units A,B,C — three add_symbol calls.
-• Calling connect_pins for long-distance nets. Use add_label or connect_netlist
-  with strategy=auto so the router decides wire-vs-label.
+• Forgetting multi-unit ICs. NE5532 has units A,B,C — one entry per unit.
 • Skipping no_connect for unused IC pins — every unconnected pin is an ERC error.`), nil, nil
 }

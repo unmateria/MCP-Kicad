@@ -84,7 +84,7 @@ type addSymbolInput struct {
 	MountType     string  `json:"mount_type,omitempty"    jsonschema:"THT or SMD — defaults to THT"`
 	Footprint     string  `json:"footprint,omitempty"     jsonschema:"override; auto-assigned from mount_type if empty"`
 	Unit          int     `json:"unit,omitempty"          jsonschema:"unit number for multi-unit ICs (default 1); place each unit separately"`
-	AutoPlace     bool    `json:"auto_place,omitempty"    jsonschema:"true → server assigns grid position; later call relayout"`
+	AutoPlace     bool    `json:"auto_place,omitempty"    jsonschema:"true → server assigns a free grid position"`
 	Rotation      float64 `json:"rotation,omitempty"      jsonschema:"CCW degrees: 0, 90, 180, 270"`
 	X             float64 `json:"x,omitempty"             jsonschema:"X in mm; required if auto_place is false"`
 	Y             float64 `json:"y,omitempty"             jsonschema:"Y in mm; required if auto_place is false"`
@@ -214,19 +214,6 @@ func (e *Env) handleAddLabelTool(_ context.Context, _ *mcp.CallToolRequest, in a
 	return e.execOne(in.SchematicPath, modifySchematicInput{
 		Action: "add_label", Name: in.Name, X: in.X, Y: in.Y, Rotation: in.Rotation,
 	})
-}
-
-// --- relayout ---
-
-type relayoutInput struct {
-	SchematicPath string `json:"schematic_path" jsonschema:"Path to the .kicad_sch file"`
-}
-
-func (e *Env) handleRelayoutTool(_ context.Context, _ *mcp.CallToolRequest, in relayoutInput) (res *mcp.CallToolResult, _ any, _ error) {
-	defer recoverToolPanic(&res)
-	r, _, err := e.execOne(in.SchematicPath, modifySchematicInput{Action: "relayout"})
-	r = e.withInlinePNG(r, in.SchematicPath)
-	return r, nil, err
 }
 
 // --- batch_schematic ---

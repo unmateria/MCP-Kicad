@@ -19,7 +19,6 @@ import (
 // Three previously-divergent code paths converge here:
 //   - tools/schematic.go::add_power_rail (single-shot user op)
 //   - tools/netlist.go::routeNets power shortcut
-//   - tools/schematic.go relayout pwrLinks loop
 type PowerEmitter struct {
 	env *Env
 	sch *sexp.Schematic
@@ -34,7 +33,7 @@ func (e *Env) NewPowerEmitter(sch *sexp.Schematic) *PowerEmitter {
 // Emit places one power symbol at `target` (e.g. "U1.VCC"). When a symbol of
 // the same lib_id already lives in the same dedup bucket — either because the
 // emitter put it there earlier or because it was carried over from the
-// pre-relayout schematic — Emit becomes a no-op and returns dedup=true.
+// schematic — Emit becomes a no-op and returns dedup=true.
 func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup bool) {
 	if !strings.HasPrefix(libID, "power:") {
 		return fmt.Sprintf("error: %q is not a power: symbol", libID), false, false

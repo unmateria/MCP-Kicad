@@ -33,7 +33,6 @@ type AddPowerRailArgs struct {
 	From          string
 	Rotation      float64
 }
-type RelayoutArgs struct{ SchematicPath string }
 type ExportArgs struct {
 	SchematicPath string
 	Format        string
@@ -60,10 +59,6 @@ func (e *Env) HandleConnectNetlistForTest(ctx context.Context, req *mcp.CallTool
 	return e.handleConnectNetlist(ctx, req, connectNetlistInput{
 		SchematicPath: a.SchematicPath, Connections: a.Connections, Strategy: a.Strategy,
 	})
-}
-
-func (e *Env) HandleRelayoutForTest(ctx context.Context, req *mcp.CallToolRequest, a RelayoutArgs) (*mcp.CallToolResult, any, error) {
-	return e.handleRelayoutTool(ctx, req, relayoutInput{SchematicPath: a.SchematicPath})
 }
 
 func (e *Env) HandleExportForTest(ctx context.Context, req *mcp.CallToolRequest, a ExportArgs) (*mcp.CallToolResult, any, error) {

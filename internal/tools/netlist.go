@@ -54,11 +54,6 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 		return toolText(fmt.Sprintf("error parsing schematic: %v", err)), nil, nil
 	}
 
-	// Remember the user's original pin ordering — relayout uses it as a
-	// signal-flow hint when picking DAG sources, instead of falling back to
-	// schematic add-order which has no semantic meaning.
-	rememberNetlistIntent(input.SchematicPath, input.Connections)
-
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "connect_netlist: %d nets\n", len(input.Connections))
 
@@ -68,20 +63,13 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	// here are removed from the router's work via compForNet; the geometric
 	// gate still runs afterwards as the final safety net. Repositioning may move
 	// satellite symbols, so the router obstacle grid is built AFTER this pass.
-	//
-	// NB: this runs only in connect_netlist, not in relayout. relayout shares
-	// routeNets but its downstream rotation-optimizer (relayout_optimize.go)
-	// strips every wire and re-routes independently via route2, which would
-	// both discard the formula wires and compound any satellite moves — so
-	// relayout passes a nil component map and behaves exactly as before.
 	var compForNet map[string]map[string]int
 	wiregenWires := 0
 	if strategy != "label" {
 		wNets, sNets := buildWiregenInputs(sch, input.Connections)
 		clusters := cluster.Detect(sexp.ReadSymbols(sch), sNets)
-		// allowMoves=false: a repositioned satellite would survive into the
-		// downstream relayout and perturb its placement, so the pipeline only
-		// wires clusters that are already adjacent.
+		// allowMoves=false: the caller owns placement, so the pipeline only
+		// wires clusters whose symbols are already adjacent.
 		res := wiregen.ApplyOpts(sch, clusters, wNets, false)
 		if !res.Empty() {
 			compForNet = buildCompForNet(res.Pairs)
@@ -139,7 +127,7 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 
 	// Check for pins not assigned to any net in the connection table.
 	// Also check existing wires/labels/no_connect markers in the schematic
-	// so pins connected by previous calls (e.g. relayout auto-reconnect) are not falsely reported.
+	// so pins connected by previous calls are not falsely reported.
 	assignedPins := make(map[string]bool)
 	for _, conn := range input.Connections {
 		for _, pin := range conn.Pins {
@@ -193,10 +181,10 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 		}
 	}
 
-	// Suggest relayout when wires sprawl across a wide area — typical sign that
-	// the LLM placed components manually without considering net topology.
+	// Warn when wires sprawl across a wide area — typical sign that components
+	// were placed without considering net topology.
 	if span, n := wireSpan(sch); n >= 3 && span > 150.0 {
-		fmt.Fprintf(&sb, "\nTIP: wires span %.0f mm across the page (%d segments). Call relayout to apply Sugiyama layout — it places connected symbols closer and shrinks total wire length.\n", span, n)
+		fmt.Fprintf(&sb, "\nTIP: wires span %.0f mm across the page (%d segments). Move connected symbols closer together in the design source and recompile.\n", span, n)
 	}
 
 	sb.WriteString("Tip: call validate_design (ERC) and add no_connect for unused pins.")
@@ -204,8 +192,7 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 }
 
 // wireSpan returns the diagonal of the bounding box containing every wire
-// endpoint, plus the wire count. Used to detect sprawled layouts that would
-// benefit from relayout.
+// endpoint, plus the wire count. Used to detect sprawled layouts.
 func wireSpan(sch *sexp.Schematic) (float64, int) {
 	wires := sch.Wires()
 	if len(wires) == 0 {
@@ -259,8 +246,8 @@ type routeSegment struct {
 // routeNets accepts an optional compForNet (net name -> pin ref -> component
 // id) produced by the Phase 3 wiregen pre-pass in handleConnectNetlist: pins
 // sharing a component id are already joined by a formula wire, so the router
-// skips them. It is nil for callers that do not run wiregen (e.g. relayout),
-// in which case routing is identical to the pre-Phase-3 behaviour.
+// skips them. It is nil for callers that do not run wiregen, in which case
+// routing is identical to the pre-Phase-3 behaviour.
 func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn, strategy string, compForNet map[string]map[string]int, sb *strings.Builder) (totalWires, totalLabels, totalErrors int) {
 	for _, conn := range conns {
 		if len(conn.Pins) < 2 {
@@ -402,12 +389,11 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		}
 
 		// When all segments were routed with wires (no labels), place one net label
-		// at the first pin so relayout can discover the net's name via TraceNets.
-		// This must ALSO fire when the wiregen pre-pass consumed pairs of this net
-		// (netComp != nil): a net fully wired by formula produces zero router
-		// segments here (netWires==0), but without a label relayout cannot
-		// rediscover the net and silently drops it, leaving its pins dangling
-		// after the rewire (regression found on demo_voltage_regulator's
+		// at the first pin so downstream passes can discover the net's name via
+		// TraceNets. This must ALSO fire when the wiregen pre-pass consumed pairs
+		// of this net (netComp != nil): a net fully wired by formula produces zero
+		// router segments here (netWires==0), and without a label the net stays
+		// invisible to TraceNets (regression found on demo_voltage_regulator's
 		// LED_NODE, wired entirely by the series_led generator).
 		if netLabels == 0 && (netWires > 0 || netComp != nil) && conn.Net != "" {
 			sch.AddLabel(sexp.NewNetLabel(conn.Net, positions[0].x, positions[0].y, labelRotForDir(positions[0].dir)))
@@ -569,10 +555,10 @@ func routeWithExits(rt *router.Router, x1, y1, dir1, x2, y2, dir2 float64) [][2]
 // from the symbol body — i.e., aligned with the pin's outgoing wire
 // direction. Pin direction is in screen-space CCW degrees from +X.
 //
-//   pin direction east  (0)   → label rotation 0   (text reads right)
-//   pin direction north (90)  → label rotation 90  (text reads up)
-//   pin direction west  (180) → label rotation 180 (text reads left)
-//   pin direction south (270) → label rotation 270 (text reads down)
+//	pin direction east  (0)   → label rotation 0   (text reads right)
+//	pin direction north (90)  → label rotation 90  (text reads up)
+//	pin direction west  (180) → label rotation 180 (text reads left)
+//	pin direction south (270) → label rotation 270 (text reads down)
 func labelRotForDir(dir float64) float64 {
 	switch int(math.Round(dir)) % 360 {
 	case 0:
@@ -715,16 +701,16 @@ func RegisterNetlistTools(s *mcp.Server, env *Env) {
 			"  auto  (default) — A* routing; falls back to net labels when routing fails or route > 150 mm\n" +
 			"  wire  — A* only; warns about failures but does not fall back to labels\n" +
 			"  label — skip routing entirely; place net labels at every pin (fastest, always clean)\n\n" +
-			"Typical workflow:\n" +
+			"For a new design prefer compile_schematic on a .design.json source.\n\n" +
+			"Manual workflow (patching an existing schematic):\n" +
 			"  1. create_schematic\n" +
-			"  2. batch: add all symbols (auto_place: true)\n" +
+			"  2. batch: add all symbols with explicit x/y\n" +
 			"  3. connect_netlist with full connection table, strategy: auto\n" +
-			"  4. relayout  ← Sugiyama places symbols based on connections\n" +
-			"  5. add_power_rail for power pins (uses pin positions from connect_netlist output)\n" +
-			"  6. validate_design (ERC)\n\n" +
+			"  4. add_power_rail for power pins (uses pin positions from connect_netlist output)\n" +
+			"  5. validate_design (ERC)\n\n" +
 			"Pin ref format: REF.pin  e.g. R1.1, U1.VCC, C1.+\n" +
 			"Multi-unit: REF.unit.pin  e.g. U1.1.+\n\n" +
 			"Junctions are auto-inserted at T-intersections.\n" +
-			"One net label per net is always placed (even with wire strategy) so relayout can discover topology.",
+			"One net label per net is always placed (even with wire strategy) so the net stays visible to TraceNets.",
 	}, WrapTool(env.Log, "connect_netlist", env.handleConnectNetlist))
 }

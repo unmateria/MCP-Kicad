@@ -141,10 +141,9 @@ func Apply(sch *sexp.Schematic, clusters []cluster.Cluster, nets []NetInput) *Re
 // occupancy state).
 //
 // allowMoves gates repositioning. The connect_netlist integration passes false:
-// a moved satellite's new position would survive into the downstream relayout
-// (which re-places everything) and perturb it, so in the pipeline wiregen only
-// wires clusters that are ALREADY adjacent. Repositioning stays available (and
-// tested) for callers that own the final placement.
+// placement is owned by the caller (the design source), so in the pipeline
+// wiregen only wires clusters that are ALREADY adjacent. Repositioning stays
+// available (and tested) for callers that own the final placement.
 func ApplyOpts(sch *sexp.Schematic, clusters []cluster.Cluster, nets []NetInput, allowMoves bool) *Result {
 	res := &Result{ByKind: map[string]int{}}
 	if len(clusters) == 0 || len(nets) == 0 {

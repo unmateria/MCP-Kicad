@@ -6,3 +6,4 @@
 output/
 logs/
 nul
+projects/*_e2e/

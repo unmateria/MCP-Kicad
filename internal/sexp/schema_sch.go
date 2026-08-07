@@ -39,8 +39,7 @@ func (s *Schematic) Serialize() string {
 func (s *Schematic) Root() *Node { return s.root }
 
 // ReplaceRoot swaps in a new root node, replacing the entire schematic
-// content. Used by the relayout optimizer to commit an improved variant
-// computed on a re-parsed copy.
+// content. Used to commit a variant computed on a re-parsed copy.
 func (s *Schematic) ReplaceRoot(root *Node) {
 	if root != nil {
 		s.root = root
@@ -341,7 +340,7 @@ type RemovedLabel struct {
 }
 
 // RemoveLabels removes all (label ...) nodes and returns their names and positions
-// so callers can re-add them after a relayout.
+// so callers can re-add them after moving symbols.
 func (s *Schematic) RemoveLabels() []RemovedLabel {
 	var removed []RemovedLabel
 	filtered := make([]*Node, 0, len(s.root.Children))

@@ -42,31 +42,27 @@ go run ./cmd/pininfo <library.kicad_sym> [SymbolName]
 # Measure layout quality (bends, crossings, wires-through-symbol)
 go run ./cmd/measure_layout <project.kicad_sch>
 
-# Canonical demos (drive the full MCP pipeline end-to-end)
-go run ./cmd/demo_mcu_i2c
-go run ./cmd/demo_voltage_regulator
-go run ./cmd/demo_buck_converter
-go run ./cmd/demo_full_board
-go run ./cmd/demo_apply_template_opamp   # P6 stamping demo
+# Compile a declarative source into a schematic (the main iteration loop)
+go run ./cmd/compile -o out.kicad_sch docs/compiler/<x>.design.json
 
-# End-to-end smoke test (LED + NE5532 + NE555 power-dedup canary)
+# Template stamping demo
+go run ./cmd/demo_apply_template_opamp
+
+# End-to-end smoke test (compiles led_18650 + ne5532_buf + ne555_astable)
 go run ./cmd/verify_e2e
-
-# Goldens (P7) — bless current state explicitly; CI never blesses.
-go run ./cmd/update_goldens
 ```
 
-### Optional: ELK-based placement
-The `internal/place2/elk` package shells out to a Node.js subprocess running
-elkjs (Eclipse Layout Kernel). To enable it:
+### Canonical circuits
 
-```bash
-npm install -g elkjs
+The seven `.design.json` sources in `docs/compiler/` are the reference corpus —
+every pipeline change must be checked against all of them:
+
+```
+demo_full_board   demo_voltage_regulator   demo_mcu_i2c   demo_buck_converter
+led_18650         ne5532_buf               ne555_astable
 ```
 
-When Node or elkjs is unavailable the pipeline falls back to the legacy
-`PlaceFlow` Sugiyama implementation; placement still works but ELK gives
-visibly better port-aware layouts on multi-pin ICs.
+The format is documented in `docs/compiler/FORMAT.md`.
 
 ## Architecture
 
@@ -87,21 +83,18 @@ The server exposes MCP tools that an LLM calls to design PCBs. The tool implemen
 | `cmd/pininfo` | Utility to extract pin positions from `.kicad_sym` files |
 | `internal/config` | Reads `config.ini` via `gopkg.in/ini.v1`; auto-detects KiCad install; `os.Exit(1)` on bad config |
 | `internal/sexp` | S-expression parser/writer for KiCad files (the AST engine); includes pin resolution (`pins.go`) and netlist tracer (`nets.go`) |
-| `internal/layout` | Legacy Sugiyama layered layout — still used by `relayout`; superseded by `internal/place2` |
-| `internal/router` | Legacy A* orthogonal grid router (`astar.go`) — superseded by `internal/route2` |
-| `internal/place2` | Next-gen placement pipeline (P1..P8): cluster detection → rules (Vcc top, GND bottom, signal flow L→R, rotation) → ELK layout → snap → route → decorate |
+| `internal/compile` | Declarative design compiler: parses `.design.json`, resolves pin-anchored placement into absolute coordinates, produces the layout consumed by `tools/compile.go` |
+| `internal/router` | A* orthogonal grid router (`astar.go`) used by `connect_netlist` and the compiler's routing pass |
 | `internal/place2/cluster` | Functional cluster detection (decoupling caps adjacent to IC, I²C pull-ups, LC filters, crystals + load caps, voltage dividers, op-amp feedback, headers) |
-| `internal/place2/rules` | Human-convention rules: power rails above/below pin, bus alignment, signal flow, R/C/L rotation |
-| `internal/place2/elk` | elkjs subprocess bridge for Sugiyama-with-ports layout (requires `npm install -g elkjs`); falls back to legacy PlaceFlow when Node.js or elkjs are missing |
+| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires |
 | `internal/place2/templates` | Substructure library + `Stamp` API used by `apply_template`. Templates: op-amp non-inverting, voltage divider, MCU minimal, LM7805 regulator, I²C pull-ups. |
 | `internal/place2/power` | Unified `#PWR` placer — pin-direction offset 2.54 mm, dedup by (libID, snapped position), bus alignment of same-rail symbols. Three previous power-placement sites in `tools/schematic.go` and `tools/netlist.go` converge here via `Env.NewPowerEmitter`. |
-| `internal/place2/cluster/canonical` | Extra detectors registered via `init()`: `bypass_nonpower`, `series_led`, `oscillator_rc`, `feedback_divider`. Add new ones in `canonical/<kind>.go` and remember to extend `clusterapply.go::bboxAwareOffsetsCtx`. |
-| `internal/testutil` | Golden-file utilities (UUID/date normalizer + metric tolerance compare). Used by `cmd/verify_e2e` and `cmd/update_goldens`. |
+| `internal/place2/cluster/canonical` | Extra detectors registered via `init()`: `bypass_nonpower`, `series_led`, `oscillator_rc`, `feedback_divider`. Add new ones in `canonical/<kind>.go`. |
 | `internal/route2/steiner.go` | Steiner trunk + collinear-group detector. Triggered in `tools/netlist.go::routeNets` for nets with ≥4 colinear pins (≥75% of net). |
 | `internal/place2/metrics` | Objective layout-quality scoring (bends, crossings, wires-through-symbol, total wire length); used by `layout_metrics` tool and `cmd/measure_layout` |
-| `internal/place2/gate` | Geometric quality gate: `Enforce()` demotes any net whose wiring crosses another net, cuts a symbol body or overlaps collinearly → wires replaced by net labels (connectivity preserved). Runs at the end of `connect_netlist` and `relayout`. |
-| `internal/place2/wiregen` | Closed-form cluster wiring (decoupling, 2-pin satellites, dividers, crystal load caps): straight or single-L with clear-corridor preconditions; applies or declines, never searches. Pre-pass in `connect_netlist`. `allowMoves` exists but is off in production. |
-| `internal/sexp/normalize.go` + `internal/tools/sheetfit.go` | Post-relayout rigid translation of all content into the sheet's usable area (≥12.7 mm margins, avoids title block); auto-upgrades paper A4→A3 |
+| `internal/place2/gate` | Geometric quality gate: `Enforce()` demotes any net whose wiring crosses another net, cuts a symbol body or overlaps collinearly → wires replaced by net labels (connectivity preserved). Runs at the end of `compile_schematic` and `connect_netlist`. |
+| `internal/place2/wiregen` | Closed-form cluster wiring (decoupling, 2-pin satellites, dividers, crystal load caps): straight or single-L with clear-corridor preconditions; applies or declines, never searches. Pre-pass in `compile_schematic` and `connect_netlist`. `allowMoves` exists but is off in production. |
+| `internal/sexp/normalize.go` + `internal/tools/sheetfit.go` | Final rigid translation of all content into the sheet's usable area (≥12.7 mm margins, avoids title block); auto-upgrades paper A4→A3 |
 | `internal/route2` | Next-gen routing layer: A*++ fallback with angular heuristic + cross-prevention; libavoid cgo bindings stubbed for future |
 | `internal/tools` | One file per MCP tool group, implements tool logic |
 | `internal/kicadcli` | Wrapper around `kicad-cli.exe` subprocess calls; violation classifier |
@@ -254,6 +247,7 @@ File I/O pattern: `os.ReadFile` → `ParseSchematic`/`ParsePCB` → mutate AST �
 | `check_component_existence` | `components.go` | Local libs → global KiCad libs → SnapEDA fallback (up to 5 results) |
 | `fetch_external_part` | `components.go` | Downloads symbol + footprint to `libs/downloaded/{dest}/` |
 | `register_library` | `components.go` | Appends entry to `sym-lib-table` or `fp-lib-table` |
+| `compile_schematic` | `compile.go` | Compile a `.design.json` source into a complete `.kicad_sch` (placement, wiring, power symbols, no_connects, gate, ERC, PNG preview). The primary authoring path. |
 | `modify_schematic` | `schematic.go` | See actions below |
 | `read_schematic` | `schematic.go` | Lists placed symbols + pin positions; ASCII layout grid; connectivity status |
 | `get_connectivity_summary` | `schematic.go` | Full netlist audit: unconnected pins, dangling nets, pin counts |
@@ -277,7 +271,6 @@ File I/O pattern: `os.ReadFile` → `ParseSchematic`/`ParsePCB` → mutate AST �
 | `no_connect` | `from` or `x, y` | Mark pin intentionally unconnected (suppresses ERC) |
 | `junction` | `x, y` | Solder dot at T/X-intersection |
 | `add_label` | `name, x, y, rotation` | Net label (two same-name labels = connected) |
-| `relayout` | — | Apply Sugiyama layout to non-power symbols; removes existing wires |
 | `batch` | `operations` list | Execute multiple actions in one write; stops on first error |
 
 **`connect_netlist` — preferred for routing full designs:**
@@ -292,12 +285,10 @@ Daisy-chains pins within each net (pin[0]→pin[1]→…). Auto-inserts junction
 
 **LLM workflow (recommended):**
 ```
-1. create_schematic
-2. batch: add all symbols (auto_place: true)
-3. relayout
-4. connect_netlist  ← full connection table, strategy: auto
-5. export_schematic_image
-6. validate_design ERC
+1. Write / edit the .design.json source (see docs/compiler/FORMAT.md)
+2. compile_schematic  ← one call: placement, wiring, power, gate, ERC, PNG
+3. Look at the PNG and the ERC section of the report
+4. Iterate on the source and recompile
 ```
 
 ### Not Yet Implemented
@@ -313,4 +304,5 @@ Daisy-chains pins within each net (pin[0]→pin[1]→…). Auto-inserts junction
 - **Determinism in the placement/routing path.** Never `range` over a Go map in cluster detection, net tracing, placement or routing code — sort keys first (this was the root cause of months of heisenbugs; see `cluster.refOrder` and the sorted net naming in `sexp/nets.go`).
 - **kicad-cli reports go to a file.** `kicad-cli sch erc/drc` writes its JSON report ONLY to the `-o` file, never stdout. Parsing stdout silently yields zero violations (this bug made ERC blind for months).
 - **Fail fast on config.** Validate `config.ini` at startup; call `os.Exit(1)` on any missing required path or key.
+- **The generated `.kicad_sch` is an artifact.** Edit the `.design.json` source and recompile; never hand-edit the destination file.
 - **Idiomatic Go.** Standard Go style. Comments only where logic is non-obvious.

@@ -66,8 +66,8 @@ func TraceNets(sch *Schematic) []Net {
 		})
 	}
 	// Stable output order — rootPins is a map, so without this the net slice
-	// order (and thus routing order, power-emission order, autoConns order in
-	// relayout) would vary run-to-run. Sort by name, then first pin.
+	// order (and thus routing order and power-emission order) would vary
+	// run-to-run. Sort by name, then first pin.
 	sort.Slice(nets, func(i, j int) bool {
 		if nets[i].Name != nets[j].Name {
 			return nets[i].Name < nets[j].Name

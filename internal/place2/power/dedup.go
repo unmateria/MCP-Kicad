@@ -10,7 +10,7 @@ import (
 
 // Registry tracks which (libID, snapped-position) buckets already have a
 // power symbol so subsequent emitters can skip duplicates. It is safe to
-// share across tool calls within a single relayout pass.
+// share across tool calls within a single compile pass.
 type Registry struct {
 	seen map[bucketKey]bool
 }
