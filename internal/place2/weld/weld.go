@@ -183,12 +183,13 @@ func weldOnce(sch *sexp.Schematic, netName string, comps []component, maxLen flo
 	bodies := bodyBoxes(sch)
 	segs := wireSegments(sch)
 	netOf := sexp.TracePointNets(sch)
+	foreign := foreignPinTips(sch, netName, netOf)
 	junctions := junctionPoints(sch)
 
 	for _, cp := range orderedComponentPairs(comps) {
 		for _, pp := range orderedPointPairs(comps[cp.i], comps[cp.j]) {
 			for _, r := range routes(pp.a, pp.b) {
-				if !acceptable(r, maxLen) || !clearOfBodies(r, bodies) {
+				if !acceptable(r, maxLen) || !clearOfBodies(r, bodies) || touchesForeignPin(r, foreign) {
 					continue
 				}
 				if !commit(sch, r, netName, netOf, segs, junctions, baseline) {
@@ -711,4 +712,53 @@ func contentReach(sch *sexp.Schematic) float64 {
 		return minWeldReach
 	}
 	return math.Max(minWeldReach, math.Hypot(maxX-minX, maxY-minY)*weldReachFraction)
+}
+
+// foreignPinTips lists the pin tips that belong to some OTHER net than
+// netName — the cells a weld for this net may not touch.
+func foreignPinTips(sch *sexp.Schematic, netName string, netOf map[pt]string) []pt {
+	var out []pt
+	for _, sym := range sexp.ReadSymbols(sch) {
+		for _, p := range sym.Pins {
+			key := pt{sexp.Round2(p.X), sexp.Round2(p.Y)}
+			if netOf[key] == netName {
+				continue
+			}
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// touchesForeignPin reports whether a candidate route lands on, or runs over,
+// a pin belonging to another net. Either way KiCad reads it as a connection,
+// which turns a cosmetic upgrade into a short.
+//
+// The gate cannot be relied on to catch this after the fact: once the wire is
+// there the two nets ARE one net, so it sees a single consistent net and
+// nothing to demote. This is why the check lives here, before commit.
+func touchesForeignPin(r route, foreign []pt) bool {
+	for i := 0; i+1 < len(r.pts); i++ {
+		a, b := r.pts[i], r.pts[i+1]
+		for _, p := range foreign {
+			if onSegment(a, b, p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// onSegment reports whether p lies on the axis-aligned segment a-b, endpoints
+// included.
+func onSegment(a, b, p pt) bool {
+	if math.Abs(a[0]-b[0]) < eps { // vertical
+		return math.Abs(p[0]-a[0]) < eps &&
+			p[1] >= math.Min(a[1], b[1])-eps && p[1] <= math.Max(a[1], b[1])+eps
+	}
+	if math.Abs(a[1]-b[1]) < eps { // horizontal
+		return math.Abs(p[1]-a[1]) < eps &&
+			p[0] >= math.Min(a[0], b[0])-eps && p[0] <= math.Max(a[0], b[0])+eps
+	}
+	return false
 }

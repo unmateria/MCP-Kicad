@@ -295,6 +295,11 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		var netNotes []string
 		labeledPoints := make(map[[2]float64]bool)
 
+		// Pin tips belonging to other nets are off limits for this net's
+		// wires: touching one connects to it, which is a short the geometric
+		// gate cannot see afterwards (the two nets have become one).
+		foreignPins := foreignPinTips(sch, positions)
+
 		// Power-rail policy: if the net name maps to a known power lib_id
 		// (GND, VCC, +5V, ±12V…) AND strategy isn't forcing wires, place a
 		// power symbol at EVERY pin instead of routing — never point-to-point.
@@ -367,7 +372,7 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 			if strategy == "label" {
 				usedLabel = true
 			} else {
-				path := routeWithExits(rt, from.x, from.y, from.dir, to.x, to.y, to.dir)
+				path := routeWithExits(rt, from.x, from.y, from.dir, to.x, to.y, to.dir, foreignPins)
 				if path != nil && strategy == "auto" && uglyPath(path) {
 					// A snaking wire reads worse than a label pair: humans
 					// forgive a label, never a wire that wanders the sheet.
@@ -528,13 +533,33 @@ func strategyUsed(wires, labels int) string {
 // If either pin direction is unknown, falls back to plain rt.Route.
 // If A* between the exit and entry stubs fails, falls back to plain routing
 // rather than failing the segment outright.
-func routeWithExits(rt *router.Router, x1, y1, dir1, x2, y2, dir2 float64) [][2]float64 {
+func routeWithExits(rt *router.Router, x1, y1, dir1, x2, y2, dir2 float64, avoid [][2]float64) [][2]float64 {
 	const stubLen = 2.54
 	exitX, exitY, hasExit := offsetByDir(x1, y1, dir1, stubLen)
 	entryX, entryY, hasEntry := offsetByDir(x2, y2, dir2, stubLen)
 
+	// The stubs bypass the A* entirely — they are asserted, not searched — so
+	// nothing stopped one from landing exactly on another net's pin tip and
+	// connecting to it. A stub that would do that is dropped; head-on entry is
+	// a nicety, and a short is not.
+	blocked := func(x, y float64) bool {
+		key := [2]float64{sexp.Round2(x), sexp.Round2(y)}
+		for _, p := range avoid {
+			if p == key {
+				return true
+			}
+		}
+		return false
+	}
+	if hasExit && blocked(exitX, exitY) {
+		hasExit = false
+	}
+	if hasEntry && blocked(entryX, entryY) {
+		hasEntry = false
+	}
+
 	if !hasExit && !hasEntry {
-		return rt.Route(x1, y1, x2, y2)
+		return rt.RouteAvoiding(x1, y1, x2, y2, avoid)
 	}
 
 	startX, startY := x1, y1
@@ -549,10 +574,10 @@ func routeWithExits(rt *router.Router, x1, y1, dir1, x2, y2, dir2 float64) [][2]
 		endX, endY = entryX, entryY
 	}
 
-	mid := rt.Route(startX, startY, endX, endY)
+	mid := rt.RouteAvoiding(startX, startY, endX, endY, avoid)
 	if mid == nil {
 		// A* with stubs failed — try plain routing (stubs were premature).
-		return rt.Route(x1, y1, x2, y2)
+		return rt.RouteAvoiding(x1, y1, x2, y2, avoid)
 	}
 
 	// Stitch: pre + mid + post, dropping duplicates at the seams.
@@ -733,4 +758,25 @@ func RegisterNetlistTools(s *mcp.Server, env *Env) {
 			"Junctions are auto-inserted at T-intersections.\n" +
 			"One net label per net is always placed (even with wire strategy) so the net stays visible to TraceNets.",
 	}, WrapTool(env.Log, "connect_netlist", env.handleConnectNetlist))
+}
+
+// foreignPinTips lists the pin tips that do NOT belong to the net being
+// routed. A wire that touches one of them joins that pin's net, so they are
+// hard obstacles for this net's routing — see router.RouteAvoiding.
+func foreignPinTips(sch *sexp.Schematic, own []pinPos) [][2]float64 {
+	ownAt := make(map[[2]float64]bool, len(own))
+	for _, p := range own {
+		ownAt[[2]float64{sexp.Round2(p.x), sexp.Round2(p.y)}] = true
+	}
+	var out [][2]float64
+	for _, sym := range sexp.ReadSymbols(sch) {
+		for _, pin := range sym.Pins {
+			key := [2]float64{sexp.Round2(pin.X), sexp.Round2(pin.Y)}
+			if ownAt[key] {
+				continue
+			}
+			out = append(out, key)
+		}
+	}
+	return out
 }

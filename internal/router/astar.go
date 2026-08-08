@@ -191,6 +191,38 @@ func (pq *astarPQ) Pop() any {
 	return e
 }
 
+// RouteAvoiding is Route with extra cells blocked for the duration of this
+// call: the pin tips of every net OTHER than the one being routed.
+//
+// Touching a pin tip is a connection in KiCad, so a route that crosses or
+// ends on a foreign pin silently merges two nets. The result is geometrically
+// impeccable — one consistent net, no crossing, nothing for the quality gate
+// to object to — and electrically wrong. Keeping the A* out of those cells is
+// the only place the distinction can still be made, because afterwards the
+// two nets are indistinguishable from one.
+//
+// Cells are restored on return, so the grid is unchanged for the next net.
+func (r *Router) RouteAvoiding(x1, y1, x2, y2 float64, avoid [][2]float64) [][2]float64 {
+	saved := make(map[int]bool, len(avoid))
+	for _, p := range avoid {
+		c, row := r.worldToCell(p[0], p[1])
+		if c < 0 || c >= r.cols || row < 0 || row >= r.rows {
+			continue
+		}
+		idx := row*r.cols + c
+		if _, seen := saved[idx]; !seen {
+			saved[idx] = r.hard[idx]
+		}
+		r.hard[idx] = true
+	}
+	defer func() {
+		for idx, was := range saved {
+			r.hard[idx] = was
+		}
+	}()
+	return r.Route(x1, y1, x2, y2)
+}
+
 // Route finds an orthogonal path from (x1,y1) to (x2,y2).
 // Returns nil when no path is found or the route exceeds MaxRouteLen mm.
 // The returned slice is a minimal set of waypoints (collinear points merged).

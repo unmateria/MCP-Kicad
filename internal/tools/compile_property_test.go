@@ -161,12 +161,12 @@ func TestCompilePropertiesOnGeneratedDesigns(t *testing.T) {
 
 	const cases = 60
 
-	// knownShorts is a ratchet, not a blessing. These are generated designs
-	// the compiler refuses because its own placement shorted two declared
-	// nets — safe, since VerifyNetlist catches every one of them and the
-	// compile fails, but still layouts it ought to get right. The number may
-	// go down; if it goes up, something regressed.
-	const knownShorts = 6
+	// Zero, and held there. This started as a ratchet at 6 — designs the
+	// compiler refused because its own placement shorted two declared nets —
+	// and the cause turned out to be one rule missing in three places: a wire
+	// must never touch a pin of another net. Once the A*, its forced entry/exit
+	// stubs and the welder all honoured it, every case went away.
+	const knownShorts = 0
 
 	compiled, rejected, shorted := 0, 0, 0
 
@@ -218,12 +218,8 @@ func TestCompilePropertiesOnGeneratedDesigns(t *testing.T) {
 	if compiled == 0 {
 		t.Fatal("no generated design compiled cleanly — the generator is not exercising the compiler")
 	}
-	if shorted > knownShorts {
-		t.Errorf("placement shorted %d generated designs, up from %d: a regression, not a new baseline",
+	if shorted != knownShorts {
+		t.Errorf("placement shorted %d generated designs, want %d: no wire may ever land on a pin of another net",
 			shorted, knownShorts)
-	}
-	if shorted < knownShorts {
-		t.Errorf("only %d generated designs short now (was %d) — good news: lower knownShorts to %d to hold the gain",
-			shorted, knownShorts, shorted)
 	}
 }
