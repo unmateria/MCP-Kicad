@@ -265,6 +265,10 @@ func (p *PowerEmitter) EmitPwrFlag(targetRef string) (msg string, ok bool, dedup
 // routinely overprints a neighbour (decoupling farms especially). Candidates
 // must be sorted: ties resolve to the lexicographically first, keeping the
 // choice deterministic.
+// textReserve is how much room a symbol's reference+value block needs just
+// outside its body: fieldMargin plus two lines of text.
+const textReserve = 5.4
+
 func bestFlagSpot(sch *sexp.Schematic, syms []sexp.SchematicSymbol, cands []string) string {
 	best, bestScore := "", -1.0
 	for _, c := range cands {
@@ -280,7 +284,17 @@ func bestFlagSpot(sch *sexp.Schematic, syms []sexp.SchematicSymbol, cands []stri
 			if s.Reference == ref {
 				continue
 			}
+			// Measure clearance to the space the part will OCCUPY, not just to
+			// its outline: every symbol's reference and value land just outside
+			// its body, and the flag is placed before any of that text exists.
+			// Scoring against the bare body makes the gap between two
+			// capacitors look like the most open space on the sheet — which is
+			// exactly where both neighbours' labels have to go, and where a
+			// flag blocks a whole decoupling row from labelling itself
+			// consistently.
 			x1, y1, x2, y2 := metrics.BodyBBox(s)
+			x1, y1 = x1-textReserve, y1-textReserve
+			x2, y2 = x2+textReserve, y2+textReserve
 			ddx := math.Max(0, math.Max(x1-fx, fx-x2))
 			ddy := math.Max(0, math.Max(y1-fy, fy-y2))
 			if d := math.Hypot(ddx, ddy); d < score {
