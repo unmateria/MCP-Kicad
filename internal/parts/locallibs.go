@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -160,47 +161,90 @@ func SearchSymbols(globalSymbolsDir, libName, partFilter string) ([]string, erro
 	return results, nil
 }
 
-// FuzzySearchGlobal scans all .kicad_sym files in globalSymbolsDir for symbols
-// matching partFilter (case-insensitive), looking at the symbol NAME, its
-// ki_keywords and its Description. Returns up to maxResults entries as
-// "LibName:PartName" — with the description appended when the match came from
-// text rather than the name, since that is what tells you which of a dozen
-// candidates you want.
+// FuzzySearchGlobal finds symbols matching partFilter across every .kicad_sym
+// in globalSymbolsDir, ranked by relevance. It reads the symbol NAME, its
+// Description and its ki_keywords, and returns "LibName:PartName — description"
+// so the caller can tell a dozen candidates apart.
 //
-// Searching only names made whole categories invisible: a session looking for
-// a Schottky diode got nothing back and had to list all 300+ symbols in the
-// Diode library and pick one from memory. The word "Schottky" appears in the
-// keywords of the right parts and nowhere in their names.
+// Ranking is the whole point, and it was learned from two sessions in a row.
+// Scanning libraries alphabetically and taking the first hits meant searching
+// "LED" returned Connector:8P8C_LED while Device:LED — whose name IS the query
+// — never appeared, and "resistor" returned three current-sense amplifiers
+// whose descriptions mention the word, but not Device:R, described simply as
+// "Resistor". The information was always there; the order buried it.
+//
+// Multi-word queries score per term rather than requiring the literal phrase.
+// "electrolytic capacitor" appears verbatim in no KiCad symbol, but scoring
+// "capacitor" alone still surfaces Device:C_Polarized, which is what the
+// author wanted.
 func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []string {
 	entries, err := os.ReadDir(globalSymbolsDir)
 	if err != nil {
 		return nil
 	}
-	filter := strings.ToLower(partFilter)
-	seen := map[string]bool{}
+	query := strings.ToLower(strings.TrimSpace(partFilter))
+	if query == "" {
+		return nil
+	}
+	rawTerms := strings.Fields(query)
+	terms := expandJargon(rawTerms)
+	// A one-word query names the part; a multi-word query DESCRIBES it. Only
+	// the first kind may hand out the exact-name jackpot: "PTC fuse" matching
+	// a symbol simply called "Fuse" on one of its two words should not beat
+	// Polyfuse, which answers both.
+	singleTerm := len(rawTerms) == 1
 
-	// Name matches first, then text matches, and at most a couple per library.
-	// Without the cap a keyword search drowns: "Schottky" appears in every
-	// 74LS part (Low-power Schottky is the logic family) and eight variants of
-	// one buffer pushed the actual Schottky diodes off the list.
-	const perLib = 2
-	var byName, byText []string
-	countByLib := map[string]int{}
+	type hit struct {
+		id    string
+		desc  string
+		lib   string
+		score int
+		nlen  int
+	}
+	var hits []hit
 
-	add := func(lib, id, desc string, nameMatch bool) {
-		if seen[id] || countByLib[lib] >= perLib {
+	consider := func(lib, name, desc, keywords string) {
+		lname := strings.ToLower(name)
+		ldesc := strings.ToLower(desc)
+		lkeys := strings.ToLower(keywords)
+
+		// "The part IS what was asked for" has to consider the TRANSLATED
+		// terms too, not just the literal query: searching "xtal" should land
+		// on Device:Crystal, and it did not, because the exact-name bonus was
+		// comparing against "xtal" while the library says "Crystal".
+		exactName := lname == query
+		if singleTerm {
+			for _, t := range terms {
+				if lname == t {
+					exactName = true
+				}
+			}
+		}
+
+		score := 0
+		switch {
+		case exactName:
+			score += 1000
+		case ldesc == query:
+			score += 800
+		case strings.HasPrefix(lname, query):
+			score += 400
+		}
+		for _, t := range terms {
+			if strings.Contains(lname, t) {
+				score += 100
+			}
+			if strings.Contains(ldesc, t) {
+				score += 60
+			}
+			if strings.Contains(lkeys, t) {
+				score += 40
+			}
+		}
+		if score == 0 {
 			return
 		}
-		seen[id] = true
-		countByLib[lib]++
-		if desc != "" {
-			id += "  — " + desc
-		}
-		if nameMatch {
-			byName = append(byName, id)
-			return
-		}
-		byText = append(byText, id)
+		hits = append(hits, hit{id: lib + ":" + name, desc: desc, lib: lib, score: score, nlen: len(name)})
 	}
 
 	for _, e := range entries {
@@ -213,47 +257,73 @@ func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []st
 			continue
 		}
 
-		current, currentDesc := "", ""
+		name, desc, keywords := "", "", ""
+		flush := func() {
+			if name != "" {
+				consider(libName, name, desc, keywords)
+			}
+			name, desc, keywords = "", "", ""
+		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
-
 			if strings.HasPrefix(line, `(symbol "`) {
-				name := quotedAfter(line, `(symbol "`)
-				if name == "" || isSubUnit(name) {
-					continue
+				n := quotedAfter(line, `(symbol "`)
+				if n == "" || isSubUnit(n) {
+					continue // sub-unit: keep accumulating for the parent
 				}
-				current, currentDesc = name, ""
-				if strings.Contains(strings.ToLower(name), filter) {
-					add(libName, libName+":"+name, "", true)
-				}
+				flush()
+				name = n
 				continue
 			}
-			if current == "" {
+			if name == "" {
 				continue
 			}
-			// Description is worth remembering even when the keywords match,
-			// so the caller sees what the part actually is.
 			if strings.HasPrefix(line, `(property "Description"`) {
-				currentDesc = propertyValue(line)
+				desc = propertyValue(line)
 			}
-			if strings.HasPrefix(line, `(property "ki_keywords"`) || strings.HasPrefix(line, `(property "Description"`) {
-				val := propertyValue(line)
-				if val != "" && strings.Contains(strings.ToLower(val), filter) {
-					desc := currentDesc
-					if desc == "" {
-						desc = val
-					}
-					add(libName, libName+":"+current, desc, false)
-				}
+			if strings.HasPrefix(line, `(property "ki_keywords"`) {
+				keywords = propertyValue(line)
 			}
 		}
+		flush()
 	}
 
-	results := append(byName, byText...)
-	if len(results) > maxResults {
-		results = results[:maxResults]
+	// Best score first; then the shorter name, because the generic part of a
+	// family (Device:R) is nearly always what a plain-word search wanted;
+	// then alphabetically so the list is stable run to run.
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		if hits[i].nlen != hits[j].nlen {
+			return hits[i].nlen < hits[j].nlen
+		}
+		return hits[i].id < hits[j].id
+	})
+
+	// Cap per library so one family cannot fill the answer: "Schottky" matches
+	// every 74LS part, and eight variants of one buffer had crowded out the
+	// actual Schottky diodes. Three rather than two, because a generic library
+	// legitimately holds several variants worth seeing — at two, "electrolytic
+	// capacitor" returned C and C_US and hid C_Polarized, the one wanted.
+	const perLib = 3
+	countByLib := map[string]int{}
+	var out []string
+	for _, h := range hits {
+		if countByLib[h.lib] >= perLib {
+			continue
+		}
+		countByLib[h.lib]++
+		entry := h.id
+		if h.desc != "" {
+			entry += "  — " + h.desc
+		}
+		out = append(out, entry)
+		if len(out) >= maxResults {
+			break
+		}
 	}
-	return results
+	return out
 }
 
 // isSubUnit returns true if the name matches the KiCad sub-unit pattern Name_N_M.
@@ -334,4 +404,34 @@ func propertyValue(line string) string {
 		return ""
 	}
 	return rest[:end]
+}
+
+// jargon maps words engineers use to the words KiCad's libraries actually
+// contain. Every entry comes from a search that returned nothing useful in a
+// real session, not from imagination — KiCad has no symbol whose text says
+// "electrolytic", it says "Polarized capacitor", and someone asking for one is
+// not going to guess that.
+//
+// Deliberately tiny. A big synonym table would be a second vocabulary to
+// maintain and would start guessing wrong; this only covers words where the
+// trade name and the library name genuinely differ.
+var jargon = map[string]string{
+	"electrolytic": "polarized",
+	"xtal":         "crystal",
+	"opto":         "optocoupler",
+	"optoisolator": "optocoupler",
+	"pot":          "potentiometer",
+	"ldo":          "dropout",
+}
+
+// expandJargon adds the library's own word alongside each trade term, keeping
+// both so a query that already used KiCad's vocabulary is unaffected.
+func expandJargon(terms []string) []string {
+	out := terms
+	for _, t := range terms {
+		if alt, ok := jargon[t]; ok {
+			out = append(out, alt)
+		}
+	}
+	return out
 }
