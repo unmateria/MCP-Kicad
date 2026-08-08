@@ -161,46 +161,97 @@ func SearchSymbols(globalSymbolsDir, libName, partFilter string) ([]string, erro
 }
 
 // FuzzySearchGlobal scans all .kicad_sym files in globalSymbolsDir for symbols
-// whose name contains partFilter (case-insensitive). Returns up to maxResults
-// results as "LibName:PartName" strings, sorted by library name.
+// matching partFilter (case-insensitive), looking at the symbol NAME, its
+// ki_keywords and its Description. Returns up to maxResults entries as
+// "LibName:PartName" — with the description appended when the match came from
+// text rather than the name, since that is what tells you which of a dozen
+// candidates you want.
+//
+// Searching only names made whole categories invisible: a session looking for
+// a Schottky diode got nothing back and had to list all 300+ symbols in the
+// Diode library and pick one from memory. The word "Schottky" appears in the
+// keywords of the right parts and nowhere in their names.
 func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []string {
 	entries, err := os.ReadDir(globalSymbolsDir)
 	if err != nil {
 		return nil
 	}
 	filter := strings.ToLower(partFilter)
-	var results []string
+	seen := map[string]bool{}
+
+	// Name matches first, then text matches, and at most a couple per library.
+	// Without the cap a keyword search drowns: "Schottky" appears in every
+	// 74LS part (Low-power Schottky is the logic family) and eight variants of
+	// one buffer pushed the actual Schottky diodes off the list.
+	const perLib = 2
+	var byName, byText []string
+	countByLib := map[string]int{}
+
+	add := func(lib, id, desc string, nameMatch bool) {
+		if seen[id] || countByLib[lib] >= perLib {
+			return
+		}
+		seen[id] = true
+		countByLib[lib]++
+		if desc != "" {
+			id += "  — " + desc
+		}
+		if nameMatch {
+			byName = append(byName, id)
+			return
+		}
+		byText = append(byText, id)
+	}
+
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".kicad_sym") {
 			continue
 		}
 		libName := strings.TrimSuffix(e.Name(), ".kicad_sym")
-		symPath := filepath.Join(globalSymbolsDir, e.Name())
-		data, err := os.ReadFile(symPath)
+		data, err := os.ReadFile(filepath.Join(globalSymbolsDir, e.Name()))
 		if err != nil {
 			continue
 		}
+
+		current, currentDesc := "", ""
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, `(symbol "`) {
+
+			if strings.HasPrefix(line, `(symbol "`) {
+				name := quotedAfter(line, `(symbol "`)
+				if name == "" || isSubUnit(name) {
+					continue
+				}
+				current, currentDesc = name, ""
+				if strings.Contains(strings.ToLower(name), filter) {
+					add(libName, libName+":"+name, "", true)
+				}
 				continue
 			}
-			rest := line[len(`(symbol "`):]
-			end := strings.Index(rest, `"`)
-			if end < 0 {
+			if current == "" {
 				continue
 			}
-			name := rest[:end]
-			if isSubUnit(name) {
-				continue
+			// Description is worth remembering even when the keywords match,
+			// so the caller sees what the part actually is.
+			if strings.HasPrefix(line, `(property "Description"`) {
+				currentDesc = propertyValue(line)
 			}
-			if strings.Contains(strings.ToLower(name), filter) {
-				results = append(results, libName+":"+name)
-				if len(results) >= maxResults {
-					return results
+			if strings.HasPrefix(line, `(property "ki_keywords"`) || strings.HasPrefix(line, `(property "Description"`) {
+				val := propertyValue(line)
+				if val != "" && strings.Contains(strings.ToLower(val), filter) {
+					desc := currentDesc
+					if desc == "" {
+						desc = val
+					}
+					add(libName, libName+":"+current, desc, false)
 				}
 			}
 		}
+	}
+
+	results := append(byName, byText...)
+	if len(results) > maxResults {
+		results = results[:maxResults]
 	}
 	return results
 }
@@ -246,4 +297,41 @@ func containsPart(symFilePath, partName string) bool {
 	// KiCad symbol files have entries like: (symbol "PartName" ...)
 	needle := fmt.Sprintf(`(symbol "%s"`, partName)
 	return strings.Contains(string(data), needle)
+}
+
+// quotedAfter returns the first quoted string following prefix in line.
+func quotedAfter(line, prefix string) string {
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	rest := line[len(prefix):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+// propertyValue returns the VALUE of a `(property "Name" "Value" …)` line.
+func propertyValue(line string) string {
+	first := strings.Index(line, `"`)
+	if first < 0 {
+		return ""
+	}
+	rest := line[first+1:]
+	closing := strings.Index(rest, `"`)
+	if closing < 0 {
+		return ""
+	}
+	rest = rest[closing+1:]
+	open := strings.Index(rest, `"`)
+	if open < 0 {
+		return ""
+	}
+	rest = rest[open+1:]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
 }

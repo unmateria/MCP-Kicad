@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "project": "buck_mc34063a_12v_5v",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "input",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x02", "value": "VIN 12V", "mirror": true },
+        { "ref": "C_IN", "lib": "Device:C", "value": "100u",
+          "place": { "pin": "1", "at": "J1.1", "dir": "right", "cells": 5 } }
+      ]
+    },
+    {
+      "name": "ic",
+      "symbols": [
+        { "ref": "U1", "lib": "Regulator_Switching:MC34063AP", "value": "MC34063A" },
+        { "ref": "C_CT", "lib": "Device:C", "value": "470p",
+          "place": { "pin": "1", "at": "U1.3", "dir": "left", "cells": 4 } },
+        { "ref": "R_SC", "lib": "Device:R", "value": "0.33", "rot": 90,
+          "place": { "pin": "1", "at": "U1.7", "dir": "right", "cells": 4 } }
+      ]
+    },
+    {
+      "name": "power",
+      "symbols": [
+        { "ref": "L1", "lib": "Device:L", "value": "220u", "rot": 90 },
+        { "ref": "D1", "lib": "Diode:1N5819", "value": "1N5819", "rot": 270,
+          "place": { "pin": "K", "at": "L1.1", "dir": "down", "cells": 4 } },
+        { "ref": "C_OUT", "lib": "Device:C", "value": "470u",
+          "place": { "pin": "1", "at": "L1.2", "dir": "right", "cells": 5 } }
+      ]
+    },
+    {
+      "name": "feedback",
+      "symbols": [
+        { "ref": "R1", "lib": "Device:R", "value": "3k9" },
+        { "ref": "R2", "lib": "Device:R", "value": "1k2",
+          "place": { "pin": "1", "at": "R1.2", "dir": "down", "cells": 4 } }
+      ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x02", "value": "VOUT 5V" }
+      ]
+    }
+  ],
+
+  "arrange": [
+    ["input", "ic", "power", "feedback", "output"]
+  ],
+
+  "nets": {
+    "VIN":   ["J1.1", "C_IN.1", "U1.6", "U1.1", "U1.8", "R_SC.1"],
+    "_IPK":  ["R_SC.2", "U1.7"],
+    "_CT":   ["U1.3", "C_CT.1"],
+    "SW":    ["U1.2", "L1.1", "D1.K"],
+    "VOUT":  ["L1.2", "C_OUT.1", "R1.1", "J2.1"],
+    "VFB":   ["R1.2", "R2.1", "U1.5"],
+    "GND":   ["C_IN.2", "C_CT.2", "U1.4", "D1.A", "C_OUT.2", "R2.2", "J1.2", "J2.2"]
+  },
+
+  "power_nets": { "GND": "power:GND" }
+}
