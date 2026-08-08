@@ -86,10 +86,17 @@ func (e *Env) handleGetDesignContext(_ context.Context, _ *mcp.CallToolRequest, 
 }
 
 // pinNet returns the net name for a given pin by scanning the traced nets.
+//
+// Matching is by pin NUMBER only. It used to accept a name match as well,
+// which quietly broke every two-pin passive: both pins of a Device:C are
+// named "~", so looking up pin 2 returned whatever net pin 1 was on. The
+// per-component listing then contradicted the NETS section of its own output
+// — reported from a session that lost a cycle deciding which half to believe.
+// Numbers are unique within a symbol, so they are the whole answer.
 func pinNet(ref string, p sexp.PinInfo, nets []sexp.Net) string {
 	for _, net := range nets {
 		for _, pr := range net.Pins {
-			if pr.Reference == ref && (pr.PinNumber == p.Number || pr.PinName == p.Name) {
+			if pr.Reference == ref && pr.PinNumber == p.Number {
 				return net.Name
 			}
 		}
