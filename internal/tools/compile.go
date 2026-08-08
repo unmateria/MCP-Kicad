@@ -550,9 +550,15 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 	if len(cols) == 0 {
 		return nil
 	}
+	// Remember the worst blocker per label, so the report can say what it
+	// would have taken to keep the name rather than only that it is gone.
 	guilty := make(map[string]bool, len(cols))
+	cost := make(map[string]textplace.Collision, len(cols))
 	for _, c := range cols {
 		guilty[c.Text] = true
+		if prev, seen := cost[c.Text]; !seen || c.NeedMM > prev.NeedMM {
+			cost[c.Text] = c
+		}
 	}
 
 	var dropped []string
@@ -571,7 +577,12 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 			continue
 		}
 		if netIntact(sch, d.Nets[name]) {
-			dropped = append(dropped, name)
+			if c := cost[name]; c.NeedCells() > 0 {
+				dropped = append(dropped, fmt.Sprintf("%s (%d cell(s) more between it and %s would have kept it)",
+					name, c.NeedCells(), strings.Replace(c.With, "wire:", "wire ", 1)))
+			} else {
+				dropped = append(dropped, name+" (no spacing would have kept it — the crowding is inside the symbol)")
+			}
 			continue
 		}
 		for _, n := range removed { // put them back: the net needs them

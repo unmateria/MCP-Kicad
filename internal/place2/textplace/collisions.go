@@ -22,14 +22,53 @@ type Collision struct {
 	// long net name beside it has nowhere else to put either. Worth saying,
 	// because a session spent two recompiles tuning spacing against one.
 	Intrinsic bool
+
+	// NeedMM is the extra clearance that would clear this overlap: the depth
+	// the two rectangles interpenetrate along the cheaper axis to separate.
+	// Reported in grid cells by String, because cells are what the author
+	// actually types.
+	//
+	// "Move something" without a quantity is an invitation to guess: three
+	// separate sessions tuned spacing by trial and error, one of them through
+	// 3, 6, 12 and 26 cells. Zero when Intrinsic, where no separation helps.
+	//
+	// It is a LOCAL figure and the wording says so. Verified by taking the
+	// advice on the counter: the named labels were indeed saved, and moving
+	// the parts introduced two collisions elsewhere. Separating one pair
+	// re-crowds its neighbours, so this answers "what would clear this one",
+	// never "what makes the sheet better".
+	NeedMM float64
+}
+
+// NeedCells is NeedMM rounded up to whole 2.54 mm grid cells.
+func (c Collision) NeedCells() int {
+	if c.Intrinsic || c.NeedMM <= 0 {
+		return 0
+	}
+	return int(math.Ceil(c.NeedMM/2.54 - 0.001))
 }
 
 func (c Collision) String() string {
 	s := fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, strings.Replace(c.With, "wire:", "wire ", 1), c.Area)
-	if c.Intrinsic {
+	switch {
+	case c.Intrinsic:
 		s += " [intrinsic to the symbol — spacing will not fix this]"
+	case c.NeedCells() > 0:
+		s += fmt.Sprintf(" [%d more cell(s) between these two clears THIS one]", c.NeedCells())
 	}
 	return s
+}
+
+// penetration is how deep two overlapping rectangles interpenetrate along the
+// axis that is cheaper to separate — the distance one has to move for the
+// overlap to vanish.
+func penetration(a, b box) float64 {
+	dx := math.Min(a.x2, b.x2) - math.Max(a.x1, b.x1)
+	dy := math.Min(a.y2, b.y2) - math.Max(a.y1, b.y1)
+	if dx <= 0 || dy <= 0 {
+		return 0
+	}
+	return math.Min(dx, dy)
 }
 
 // Collisions reports the text overlaps a finished schematic still carries.
@@ -110,9 +149,14 @@ func Collisions(sch *sexp.Schematic) []Collision {
 					continue
 				}
 				seen[pair] = true
+				intrinsic := owner != "" && belongsTo(names[j], owner)
+				need := 0.0
+				if !intrinsic {
+					need = penetration(b, o)
+				}
 				out = append(out, Collision{
 					Text: text, With: names[j], Area: area,
-					Intrinsic: owner != "" && belongsTo(names[j], owner),
+					Intrinsic: intrinsic, NeedMM: need,
 				})
 			}
 		}
