@@ -22,6 +22,17 @@ const (
 	// pin the two nets ARE one net, so the gate sees a single consistent net
 	// and ERC stays quiet between passive pins.
 	DefectMerged = "MERGED"
+
+	// DefectOrphan: a symbol the COMPILER added — a power symbol or a
+	// PWR_FLAG — ended up connected to nothing.
+	//
+	// This is our bug, never the author's, and it was invisible: the checks
+	// above only look at pins the source declares, and nobody declares a
+	// #PWR. A real session hit it and got "netlist: verified" alongside eight
+	// ERC errors, which is the worst possible outcome — two verification
+	// layers of the same system disagreeing, with the reassuring one printed
+	// as the success criterion.
+	DefectOrphan = "ORPHAN"
 )
 
 // NetDefect is one discrepancy between the netlist the source declares and
@@ -129,6 +140,8 @@ func VerifyNetlist(sch *sexp.Schematic, d *compile.Design) []NetDefect {
 			owner[idx] = name
 		}
 	}
+
+	defects = append(defects, orphanPowerSymbols(sch)...)
 	return defects
 }
 
@@ -152,6 +165,59 @@ func majorityNet(where []int) int {
 		}
 	}
 	return best
+}
+
+// orphanPowerSymbols finds power symbols and PWR_FLAGs whose pin touches
+// nothing at all.
+//
+// They are emitted with a stub wire to the pin they serve, so an orphan means
+// the stub never landed — the symbol was pushed aside to dodge an obstacle, or
+// deduplicated against another symbol that does not actually reach this pin.
+//
+// The test is PHYSICAL contact, not net membership, because KiCad joins every
+// power:GND into one net by name: asking whether the net is populated always
+// says yes and hides the fault. KiCad's own ERC asks the same physical
+// question and reports "Pin not connected" — and when the floating symbol is
+// a PWR_FLAG, its rail loses its driver too ("Input Power pin not driven").
+//
+// This is our bug, never the author's: nobody declares a #PWR in the source,
+// so nothing else in this file was looking at them.
+func orphanPowerSymbols(sch *sexp.Schematic) []NetDefect {
+	// Every point a wire ends at, and every non-power pin position.
+	touch := make(map[[2]float64]int)
+	for _, w := range sch.Wires() {
+		if ax, ay, bx, by, ok := metrics.WireCoords(w); ok {
+			touch[[2]float64{sexp.Round2(ax), sexp.Round2(ay)}]++
+			touch[[2]float64{sexp.Round2(bx), sexp.Round2(by)}]++
+		}
+	}
+	for _, sym := range sexp.ReadSymbols(sch) {
+		if strings.HasPrefix(sym.LibID, "power:") {
+			continue
+		}
+		for _, p := range sym.Pins {
+			touch[[2]float64{sexp.Round2(p.X), sexp.Round2(p.Y)}]++
+		}
+	}
+
+	var out []NetDefect
+	for _, sym := range sexp.ReadSymbols(sch) {
+		if !strings.HasPrefix(sym.LibID, "power:") || len(sym.Pins) == 0 {
+			continue
+		}
+		key := [2]float64{sexp.Round2(sym.Pins[0].X), sexp.Round2(sym.Pins[0].Y)}
+		if touch[key] > 0 {
+			continue
+		}
+		out = append(out, NetDefect{
+			Kind: DefectOrphan,
+			Net:  sym.Reference,
+			Detail: fmt.Sprintf("%s (%s) at (%.2f, %.2f) touches nothing — its stub never reached the pin it serves",
+				sym.Reference, sym.LibID, sym.Pins[0].X, sym.Pins[0].Y),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Detail < out[j].Detail })
+	return out
 }
 
 // checkPinContacts rejects a placement where two symbols' pins land on the
@@ -282,4 +348,50 @@ func flushPowerPairs(sch *sexp.Schematic) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// dropOrphanPowerSymbols removes power symbols and PWR_FLAGs left touching
+// nothing, and reports how many went.
+//
+// The gate demotes a net by deleting its wires and replacing them with labels.
+// When that net carried a power symbol's stub, the stub goes too and the
+// symbol is stranded: connectivity survives (labels plus KiCad's implicit
+// power nets), which is why the netlist still verifies, but KiCad's ERC counts
+// every stranded pin as unconnected — and a stranded PWR_FLAG takes its rail's
+// driver with it. That is how a real session got "verified" and eight ERC
+// errors at once.
+//
+// Deleting them is right rather than merely convenient: after a demotion the
+// pin they served already carries a net label, so the symbol contributes
+// nothing but a floating glyph.
+func dropOrphanPowerSymbols(sch *sexp.Schematic) int {
+	orphans := orphanPowerSymbols(sch)
+	if len(orphans) == 0 {
+		return 0
+	}
+	doomed := make(map[string]bool, len(orphans))
+	for _, o := range orphans {
+		doomed[o.Net] = true // Net carries the reference for this defect kind
+	}
+
+	kept := sch.Root().Children[:0]
+	removed := 0
+	for _, c := range sch.Root().Children {
+		if c.Head() == "symbol" {
+			ref := ""
+			for _, ch := range c.Children {
+				if ch.Head() == "property" && sexp.StringValue(ch, 1) == "Reference" {
+					ref = sexp.StringValue(ch, 2)
+					break
+				}
+			}
+			if doomed[ref] {
+				removed++
+				continue
+			}
+		}
+		kept = append(kept, c)
+	}
+	sch.Root().Children = kept
+	return removed
 }

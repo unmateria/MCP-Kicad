@@ -20,8 +20,8 @@ var outputDirMu sync.Mutex
 
 // validateDesignInput defines the parameters for the validate_design tool.
 type validateDesignInput struct {
-	SchematicPath string `json:"schematic_path" jsonschema:"Path to .kicad_sch file for ERC (optional)"`
-	PCBPath       string `json:"pcb_path"       jsonschema:"Path to .kicad_pcb file for DRC (optional)"`
+	SchematicPath string `json:"schematic_path,omitempty" jsonschema:"Path to .kicad_sch file for ERC. Give this, pcb_path, or both."`
+	PCBPath       string `json:"pcb_path,omitempty"       jsonschema:"Path to .kicad_pcb file for DRC. Give this, schematic_path, or both."`
 }
 
 // getProjectInfoInput is intentionally empty — it returns server/env metadata.
@@ -206,7 +206,7 @@ func RegisterValidationTools(s *mcp.Server, env *Env) {
 	}, WrapTool(env.Log, "validate_design", env.handleValidateDesign))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_project_info",
+		Name:        "get_project_info",
 		Description: "Return server configuration: working directory, output_dir, log file path, kicad-cli path, symbol/footprint library paths. Use this to find the correct absolute path for schematic files.",
 	}, WrapTool(env.Log, "get_project_info", env.handleGetProjectInfo))
 

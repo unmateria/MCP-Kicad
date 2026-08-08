@@ -250,6 +250,13 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	// we emitted implements exactly the netlist the source declared. The
 	// geometric gate cannot stand in for this — a wire landing on a foreign
 	// pin makes two nets one, which is geometrically consistent and silent.
+	// A gate demotion deletes the wires of the net it demotes, which can strip
+	// a power symbol of its stub and leave it floating. Sweep those away before
+	// verifying: they connect nothing and KiCad counts each as an error.
+	if n := dropOrphanPowerSymbols(sch); n > 0 {
+		fmt.Fprintf(&sb, "power: removed %d symbol(s) stranded by a gate demotion (their pins carry labels now)\n", n)
+	}
+
 	if flush := flushPowerPairs(sch); len(flush) > 0 {
 		fmt.Fprintf(&sb, "power symbols drawn flush (different rails, reads as connected): %s — add cells between those parts\n",
 			strings.Join(flush, "; "))

@@ -124,7 +124,7 @@ func (e *Env) handleCheckComponentExistence(_ context.Context, _ *mcp.CallToolRe
 
 type fetchExternalPartInput struct {
 	PartID int    `json:"part_id" jsonschema:"SnapEDA part ID (integer)"`
-	Dest   string `json:"dest"    jsonschema:"Optional destination subfolder inside libs/downloaded/"`
+	Dest   string `json:"dest,omitempty"    jsonschema:"Optional destination subfolder inside libs/downloaded/"`
 }
 
 func (e *Env) handleFetchExternalPart(_ context.Context, _ *mcp.CallToolRequest, input fetchExternalPartInput) (res *mcp.CallToolResult, _ any, _ error) {
@@ -155,7 +155,7 @@ type registerLibraryInput struct {
 	TableFile string `json:"table_file" jsonschema:"Path to sym-lib-table or fp-lib-table"`
 	LibName   string `json:"lib_name"   jsonschema:"Library name"`
 	LibPath   string `json:"lib_path"   jsonschema:"Absolute path to the library file or directory"`
-	LibType   string `json:"lib_type"   jsonschema:"Library type: KiCad (default) or Legacy"`
+	LibType   string `json:"lib_type,omitempty"   jsonschema:"Library type: KiCad (default) or Legacy"`
 }
 
 func (e *Env) handleRegisterLibrary(_ context.Context, _ *mcp.CallToolRequest, input registerLibraryInput) (res *mcp.CallToolResult, _ any, _ error) {
@@ -200,7 +200,7 @@ func (e *Env) handleRegisterLibrary(_ context.Context, _ *mcp.CallToolRequest, i
 // --- list_symbol_libraries ---
 
 type listSymbolLibrariesInput struct {
-	Filter  string `json:"filter"   jsonschema:"Optional substring to filter library names (case-insensitive). Leave empty to list all."`
+	Filter  string `json:"filter,omitempty"   jsonschema:"Optional substring to filter library names (case-insensitive). Leave empty to list all."`
 	LibName string `json:"lib_name" jsonschema:"If provided, list symbols inside this library (e.g. 'Device'). Combine with filter to narrow results."`
 }
 
