@@ -182,8 +182,21 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 	for i := 0; i < len(bodies); i++ {
 		for j := i + 1; j < len(bodies); j++ {
 			if bodies[i].overlaps(bodies[j]) {
-				return nil, fmt.Errorf("block %q: symbols %s and %s overlap; move one of them with a different dir/cells",
-					b.Name, b.Symbols[i].Ref, b.Symbols[j].Ref)
+				// Say by HOW MUCH and along which axis. "Move one of them" sent
+				// a real session through 3, 6 and 12 cells before something
+				// stuck, because a big part (a relay) can overlap by far more
+				// than the gap you would guess from the schematic.
+				dx := math.Min(bodies[i].x2, bodies[j].x2) - math.Max(bodies[i].x1, bodies[j].x1)
+				dy := math.Min(bodies[i].y2, bodies[j].y2) - math.Max(bodies[i].y1, bodies[j].y1)
+				axis, by := "horizontally", dx
+				if dy < dx {
+					axis, by = "vertically", dy
+				}
+				return nil, fmt.Errorf(
+					"block %q: symbols %s and %s overlap by %.2f mm %s (%.0f grid cells) — "+
+						"increase cells by at least %.0f on whichever of them you placed with `place`",
+					b.Name, b.Symbols[i].Ref, b.Symbols[j].Ref, by, axis,
+					math.Ceil(by/2.54), math.Ceil(by/2.54))
 			}
 		}
 	}

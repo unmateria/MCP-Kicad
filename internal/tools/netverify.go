@@ -395,3 +395,41 @@ func dropOrphanPowerSymbols(sch *sexp.Schematic) int {
 	sch.Root().Children = kept
 	return removed
 }
+
+// checkPowerRails refuses two declared power nets that point at the same power
+// symbol.
+//
+// A KiCad power symbol names its net after its OWN pin, not after the key it
+// was given in the source. So mapping both "GND" and "GND_PWR" to power:GND
+// produces two symbols that KiCad silently merges into one "GND" net — the
+// isolated ground of an opto-coupled design quietly bonded to the logic
+// ground. The schematic verifies, the ERC is clean, and the isolation is gone.
+//
+// Nothing downstream can recover the intent, so it is refused here, where the
+// author can still say what they meant.
+func checkPowerRails(d *compile.Design) error {
+	byLib := map[string][]string{}
+	var libs []string
+	for name := range d.PowerNets {
+		lib := d.PowerNets[name]
+		if len(byLib[lib]) == 0 {
+			libs = append(libs, lib)
+		}
+		byLib[lib] = append(byLib[lib], name)
+	}
+	sort.Strings(libs)
+	for _, lib := range libs {
+		names := byLib[lib]
+		if len(names) < 2 {
+			continue
+		}
+		sort.Strings(names)
+		return fmt.Errorf(
+			"power_nets maps %s to %q — KiCad names a power net after the SYMBOL, "+
+				"so these would merge into one net and the separation you declared would vanish. "+
+				"Give each rail its own symbol (power:GNDPWR, power:GNDA, power:VDD…), or drop the "+
+				"extra rail from power_nets and let it be an ordinary named net carried by labels",
+			strings.Join(names, " and "), lib)
+	}
+	return nil
+}

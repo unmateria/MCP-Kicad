@@ -65,6 +65,14 @@ cable cuando existe corredor limpio.
 11. **Los rails no se cablean**: cada pin de un power net recibe su símbolo
     (política per-pin). GND repetido muchas veces es lo profesional, no un
     defecto.
+11b. **Masas separadas: un símbolo distinto para cada una.** KiCad nombra el
+    net por el SÍMBOLO, no por la clave que tú pongas en `power_nets`. Si
+    mapeas `GND` y `GND_PWR` a `power:GND`, KiCad los fusiona en un solo net
+    y el aislamiento que creías tener desaparece — en un circuito con
+    optoacoplador eso destruye la razón de ser del diseño. El compilador
+    rechaza esa fuente, pero decide tú antes: o cada rail con su símbolo
+    (`power:GNDPWR`, `power:GNDA`…), o el rail secundario fuera de
+    `power_nets`, como net normal con nombre, que se conecta por etiquetas.
 12. **Nada de cruces en "+"**: la maquinaria ya los impide; si ves que una
     conexión insiste en cruzar, mueve el componente, no aceptes la etiqueta
     como resignación.

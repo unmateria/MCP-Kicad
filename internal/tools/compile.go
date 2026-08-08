@@ -125,6 +125,10 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		}
 	}
 
+	if err := checkPowerRails(d); err != nil {
+		return nil, err
+	}
+
 	if err := checkPinContacts(sch, d); err != nil {
 		return nil, err
 	}
@@ -380,12 +384,20 @@ func netIntact(sch *sexp.Schematic, pins []string) bool {
 // declared "unused", one marker on every pin left untouched by nets, wires,
 // labels and power symbols. Returns the auto-marked pin list for the report.
 func (e *Env) applyNoConnects(sch *sexp.Schematic, d *compile.Design, sb *strings.Builder) []string {
+	// Report the explicit ones too. They used to be applied in silence, so the
+	// only way to confirm a no_connect had landed was to hunt for the X in the
+	// PNG — which is exactly what one session ended up doing.
+	var explicit []string
 	for _, refPin := range d.NoConnect.Pins {
 		if x, y, ok := sexp.FindPinPosition(sch, refPin); ok {
 			sch.AddNoConnect(sexp.NewNoConnect(x, y))
+			explicit = append(explicit, refPin)
 		} else {
 			fmt.Fprintf(sb, "no_connect: pin %s not found\n", refPin)
 		}
+	}
+	if len(explicit) > 0 {
+		fmt.Fprintf(sb, "no_connect (%d declared): %s\n", len(explicit), strings.Join(explicit, " "))
 	}
 	var auto []string
 	if len(d.NoConnect.Unused) == 0 {
