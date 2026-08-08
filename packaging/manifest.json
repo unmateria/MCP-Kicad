@@ -1,0 +1,42 @@
+{
+  "manifest_version": "0.3",
+  "name": "mcp-kicad",
+  "display_name": "MCP-KiCad",
+  "version": "0.0.0",
+  "description": "Design KiCad schematics by talking to Claude: places parts, wires nets and runs KiCad's own ERC.",
+  "long_description": "Describe a circuit in plain language and get back a real `.kicad_sch` file you can open and edit in KiCad. Every generated schematic is verified before you see it: no wire crosses a foreign net, no wire runs through a component body, every declared connection exists and no accidental ones do. Connections that cannot be drawn cleanly become net labels rather than wires that lie. Requires KiCad 10 installed; `kicad-cli` is detected automatically. Schematics only — no PCB layout or Gerbers.",
+  "author": {
+    "name": "Unmateria",
+    "url": "https://github.com/unmateria"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unmateria/MCP-Kicad"
+  },
+  "homepage": "https://github.com/unmateria/MCP-Kicad",
+  "documentation": "https://github.com/unmateria/MCP-Kicad/blob/master/README.md",
+  "support": "https://github.com/unmateria/MCP-Kicad/issues",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": ["kicad", "eda", "electronics", "schematic", "pcb", "hardware"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/mcp-kicad-linux",
+    "mcp_config": {
+      "command": "${__dirname}/server/mcp-kicad-linux",
+      "args": [],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/mcp-kicad-win32.exe"
+        },
+        "darwin": {
+          "command": "${__dirname}/server/mcp-kicad-darwin"
+        }
+      }
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32", "darwin", "linux"]
+  },
+  "tools_generated": true
+}

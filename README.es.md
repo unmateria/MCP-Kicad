@@ -58,7 +58,15 @@ Si una conexión no se puede dibujar limpia, degrada a etiqueta de net en vez de
 
 ## Instalación
 
-### Opción A — descargar un binario (recomendado)
+### Opción A — un clic (recomendado)
+
+Descarga **`mcp-kicad.mcpb`** desde [**Releases**](https://github.com/unmateria/MCP-Kicad/releases/latest) y haz doble clic. Claude Desktop lo instala como extensión: sin editar JSON y sin escribir rutas. El bundle lleva dentro las versiones de Windows, macOS y Linux, así que el mismo fichero vale para todo.
+
+Después salta directamente a [Comprobar que funciona](#comprobar-que-funciona).
+
+> En Apple Silicon la versión de macOS del bundle corre bajo Rosetta. Si prefieres la nativa, coge `mcp-kicad-darwin-arm64` de la Opción B.
+
+### Opción B — descargar un binario
 
 1. Entra en [**Releases**](https://github.com/unmateria/MCP-Kicad/releases) y descarga el fichero de tu sistema:
 
@@ -86,7 +94,7 @@ Si una conexión no se puede dibujar limpia, degrada a etiqueta de net en vez de
 
 No hay que instalar nada más. El binario es autocontenido y no necesita fichero de configuración: encuentra KiCad por su cuenta.
 
-### Opción B — compilar desde el código
+### Opción C — compilar desde el código
 
 ```bash
 git clone https://github.com/unmateria/MCP-Kicad.git
@@ -97,6 +105,8 @@ go build -o mcp-kicad ./cmd/server      # añade .exe en Windows
 ---
 
 ## Conectarlo con Claude
+
+*No hace falta si instalaste el bundle `.mcpb`: se registra solo.*
 
 ### Claude Desktop
 

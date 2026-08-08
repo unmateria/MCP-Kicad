@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.unmateria/mcp-kicad",
+  "title": "KiCad Schematics",
+  "description": "Design KiCad schematics by talking to Claude: places parts, wires nets and runs KiCad's own ERC. Requires KiCad 10.",
+  "repository": {
+    "url": "https://github.com/unmateria/MCP-Kicad",
+    "source": "github"
+  },
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/unmateria/MCP-Kicad/releases/download/v0.0.0/mcp-kicad.mcpb",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

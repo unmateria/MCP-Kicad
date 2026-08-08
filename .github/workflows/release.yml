@@ -1,0 +1,112 @@
+name: Release
+
+# Tag a commit and everything else happens here:
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Builds every platform, publishes the GitHub Release, and registers the
+# server with the MCP Registry. No secrets are needed: the release uses the
+# automatic GITHUB_TOKEN and the registry authenticates over GitHub OIDC.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Read version from the tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build every platform
+        # -trimpath keeps the builder's absolute paths out of the binaries.
+        run: |
+          mkdir -p dist
+          for target in windows/amd64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"; ext=""
+            [ "$os" = "windows" ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags="-s -w" \
+              -o "dist/mcp-kicad-$os-$arch$ext" ./cmd/server
+          done
+          ls -lh dist
+
+      - name: Build the MCPB bundle
+        # One bundle covers all three platforms MCPB can distinguish. macOS
+        # gets the amd64 build on purpose: Apple Silicon runs it through
+        # Rosetta, so a single file works on every Mac. Anyone wanting the
+        # native arm64 build takes the loose binary from the release.
+        run: |
+          mkdir -p bundle/server
+          cp dist/mcp-kicad-windows-amd64.exe bundle/server/mcp-kicad-win32.exe
+          cp dist/mcp-kicad-darwin-amd64      bundle/server/mcp-kicad-darwin
+          cp dist/mcp-kicad-linux-amd64       bundle/server/mcp-kicad-linux
+          chmod +x bundle/server/mcp-kicad-darwin bundle/server/mcp-kicad-linux
+          python3 - <<'PY'
+          import json, os, pathlib
+          m = json.loads(pathlib.Path("packaging/manifest.json").read_text())
+          m["version"] = os.environ["VERSION"]
+          pathlib.Path("bundle/manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+          PY
+          (cd bundle && zip -qr ../dist/mcp-kicad.mcpb .)
+          unzip -l dist/mcp-kicad.mcpb
+
+      - name: Stamp version and bundle hash into server.json
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          version = os.environ["VERSION"]
+          digest = hashlib.sha256(pathlib.Path("dist/mcp-kicad.mcpb").read_bytes()).hexdigest()
+          p = pathlib.Path("server.json")
+          d = json.loads(p.read_text())
+          d["version"] = version
+          pkg = d["packages"][0]
+          pkg["identifier"] = (
+              "https://github.com/unmateria/MCP-Kicad/releases/download/"
+              "v%s/mcp-kicad.mcpb" % version
+          )
+          pkg["fileSha256"] = digest
+          p.write_text(json.dumps(d, indent=2) + "\n")
+          print(p.read_text())
+          PY
+
+      - name: Publish the GitHub Release
+        # Must run before the registry step: the registry validates that the
+        # download URL in server.json actually resolves.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            dist/mcp-kicad-windows-amd64.exe \
+            dist/mcp-kicad-linux-amd64 \
+            dist/mcp-kicad-linux-arm64 \
+            dist/mcp-kicad-darwin-amd64 \
+            dist/mcp-kicad-darwin-arm64 \
+            dist/mcp-kicad.mcpb
+
+      - name: Install mcp-publisher
+        run: |
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Log in to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: ./mcp-publisher publish
