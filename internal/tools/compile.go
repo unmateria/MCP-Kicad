@@ -228,6 +228,13 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	if moved, flipped := textplace.Autoplace(sch); moved+flipped > 0 {
 		fmt.Fprintf(&sb, "textplace: %d fields repositioned, %d labels flipped\n", moved, flipped)
 	}
+	if cols := textplace.Collisions(sch); len(cols) > 0 {
+		total := 0.0
+		for _, c := range cols {
+			total += c.Area
+		}
+		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2 — worst %s\n", len(cols), total, cols[0])
+	}
 
 	if note := fitToSheet(sch); note != "" {
 		fmt.Fprintf(&sb, "sheet: %s\n", note)

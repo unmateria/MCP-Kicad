@@ -42,6 +42,9 @@ go run ./cmd/pininfo <library.kicad_sym> [SymbolName]
 # Measure layout quality (bends, crossings, wires-through-symbol)
 go run ./cmd/measure_layout <project.kicad_sch>
 
+# Measure residual text collisions (what the reader has to squint at)
+go run ./cmd/measure_text <project.kicad_sch>...
+
 # Compile a declarative source into a schematic (the main iteration loop)
 go run ./cmd/compile -o out.kicad_sch docs/compiler/<x>.design.json
 
@@ -86,7 +89,7 @@ The server exposes MCP tools that an LLM calls to design PCBs. The tool implemen
 | `internal/compile` | Declarative design compiler: parses `.design.json`, resolves pin-anchored placement into absolute coordinates, produces the layout consumed by `tools/compile.go` |
 | `internal/router` | A* orthogonal grid router (`astar.go`) used by `connect_netlist` and the compiler's routing pass |
 | `internal/place2/cluster` | Functional cluster detection (decoupling caps adjacent to IC, I²C pull-ups, LC filters, crystals + load caps, voltage dividers, op-amp feedback, headers) |
-| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires. KiCad draws a field at (field angle + symbol rotation): fields on 90/270 symbols carry a compensating 90. |
+| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires. KiCad draws a field at (field angle + symbol rotation): fields on 90/270 symbols carry a compensating 90. Candidates are 8 directions × 3 distances (`fieldReach`) — direction alone cannot solve a decoupling farm, where every near spot lands on a neighbour. `Collisions()` reports what still overlaps, which is how text quality is measured rather than eyeballed. |
 | `internal/place2/weld` | Label-pair upgrader: same-net islands joined only by labels get a real wire (straight/L/Z) when a clean corridor exists, validated against `gate.Check`; redundant labels removed, one kept as net documentation. Runs after the gate in `compile_schematic`. |
 | `internal/place2/templates` | Substructure library + `Stamp` API used by `apply_template`. Templates: op-amp non-inverting, voltage divider, MCU minimal, LM7805 regulator, I²C pull-ups. |
 | `internal/place2/power` | Unified `#PWR` placer — pin-direction offset 2.54 mm, dedup by (libID, snapped position), bus alignment of same-rail symbols. Three previous power-placement sites in `tools/schematic.go` and `tools/netlist.go` converge here via `Env.NewPowerEmitter`. |

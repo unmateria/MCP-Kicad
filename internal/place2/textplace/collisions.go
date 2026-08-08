@@ -1,0 +1,105 @@
+package textplace
+
+import (
+	"fmt"
+	"sort"
+
+	"mcp-kicad/internal/sexp"
+)
+
+// Collision is one piece of text left overlapping something after the pass
+// has run.
+type Collision struct {
+	Text string  // the string that is hard to read
+	With string  // what it sits on: "body U1", "wire", "label SDA", "text C2"…
+	Area float64 // overlapping area, mm²
+}
+
+func (c Collision) String() string {
+	return fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, c.With, c.Area)
+}
+
+// Collisions reports the text overlaps a finished schematic still carries.
+//
+// Autoplace does not promise zero overlap — it moves each block to the
+// LOWEST-overlap position available, and on a dense sheet the best spot still
+// touches something. Nothing measured what was left, so text quality could
+// only be judged by eye, one render at a time. This is the objective number:
+// call it after Autoplace to see what the reader will actually squint at.
+//
+// Everything is compared against everything: Reference/Value blocks, net
+// labels, symbol bodies, pins, wires and no-connect markers. Output is sorted
+// by descending area then text, so the worst offender reads first and the
+// list is stable run to run.
+func Collisions(sch *sexp.Schematic) []Collision {
+	syms := sexp.ReadSymbols(sch)
+	insts := instanceNodes(sch)
+	if len(insts) != len(syms) {
+		return nil
+	}
+
+	obs, names, labels := buildScene(sch, syms)
+
+	// Reference/Value blocks are not part of the scene buildScene returns —
+	// Autoplace appends them as it places them — so add them here to make
+	// text-on-text overlap visible, remembering each one's index so a block
+	// never scores against itself.
+	type textItem struct {
+		text   string
+		box    box
+		obsIdx int
+	}
+	var items []textItem
+	for _, i := range symbolOrder(syms) {
+		lines := visibleFields(insts[i])
+		if len(lines) == 0 {
+			continue
+		}
+		b, ok := blockBounds(lines, syms[i].Rotation)
+		if !ok {
+			continue
+		}
+		label := syms[i].Reference
+		items = append(items, textItem{text: label, box: b, obsIdx: len(obs)})
+		obs = append(obs, b)
+		names = append(names, "text "+label)
+	}
+
+	var out []Collision
+	// anchor >= 0 marks a net label, which sits ON its pin and its wire by
+	// construction: those two overlaps are what "attached here" looks like,
+	// not something a reader struggles with. Everything whose rectangle
+	// contains the anchor point is therefore excused — and only that.
+	report := func(text string, b box, skip int, anchor *[2]float64) {
+		for j, o := range obs {
+			if j == skip {
+				continue
+			}
+			if anchor != nil && o.contains(anchor[0], anchor[1]) {
+				continue
+			}
+			if area := b.overlap(o); area > eps {
+				out = append(out, Collision{Text: text, With: names[j], Area: area})
+			}
+		}
+	}
+
+	for _, it := range items {
+		report(it.text, it.box, it.obsIdx, nil)
+	}
+	for _, i := range labelOrder(labels) {
+		l := labels[i]
+		report(l.name, labelBox(l.name, l.x, l.y, l.rot), l.obsIdx, &[2]float64{l.x, l.y})
+	}
+
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].Area != out[b].Area {
+			return out[a].Area > out[b].Area
+		}
+		if out[a].Text != out[b].Text {
+			return out[a].Text < out[b].Text
+		}
+		return out[a].With < out[b].With
+	})
+	return out
+}

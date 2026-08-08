@@ -219,7 +219,7 @@ func labelNode(t *testing.T, sch *sexp.Schematic, name string) *sexp.Node {
 
 // sceneOverlap scores a rectangle against the whole obstacle scene.
 func sceneOverlap(sch *sexp.Schematic, b box) float64 {
-	obs, _ := buildScene(sch, sexp.ReadSymbols(sch))
+	obs, _, _ := buildScene(sch, sexp.ReadSymbols(sch))
 	return overlapSum(b, obs, -1)
 }
 
@@ -351,4 +351,30 @@ func TestGlobalTextInvariantOnMixedBoard(t *testing.T) {
 			t.Errorf("%s text overlaps the scene by %.2f mm^2", ref, got)
 		}
 	}
+}
+
+// The extra reach exists for crowded sheets only: a symbol with clear paper
+// around it must keep its text at the conventional near distance, or every
+// schematic would drift its labels outward for no reason.
+func TestFieldsStayNearWhenThereIsRoom(t *testing.T) {
+	body := box{50, 50, 52, 60}
+	cands := fieldCandidates(body, 6, 4)
+	if len(cands) != 8*len(fieldReach) {
+		t.Fatalf("expected %d candidates, got %d", 8*len(fieldReach), len(cands))
+	}
+
+	// Nothing in the scene: the very first (nearest, right-hand) candidate wins.
+	got := bestCandidate(body, 6, 4, nil)
+	if got != cands[0] {
+		t.Errorf("with an empty scene the nearest conventional spot must win, got %+v want %+v", got, cands[0])
+	}
+
+	// Block the whole near ring: the pass must then reach further out rather
+	// than settle for the least-bad overlap.
+	near := []box{{40, 40, 62, 70}}
+	got = bestCandidate(body, 6, 4, near)
+	if got.overlap(near[0]) > eps {
+		return // found clear paper further out, which is the point
+	}
+	t.Errorf("with the near ring blocked the block should back off to clear paper, got %+v", got)
 }

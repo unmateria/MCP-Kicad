@@ -39,6 +39,11 @@ const (
 	eps         = 0.01 // coordinate/area tolerance, mm
 )
 
+// fieldReach lists the extra distances, beyond fieldMargin, a text block may
+// back off to find clear paper — nearest first. Two grid cells is the limit:
+// further out and the text stops reading as this symbol's own.
+var fieldReach = [3]float64{0, 2.54, 5.08}
+
 // Autoplace repositions every visible Reference/Value field and flips
 // colliding net labels so no text overlaps bodies, wires, labels or other
 // text. Mutates sch in place. Returns the number of fields moved + labels
@@ -52,7 +57,7 @@ func Autoplace(sch *sexp.Schematic) (fieldsMoved, labelsFlipped int) {
 		return 0, 0
 	}
 
-	obs, labels := buildScene(sch, syms)
+	obs, _, labels := buildScene(sch, syms)
 
 	for _, i := range symbolOrder(syms) {
 		fieldsMoved += placeFields(insts[i], syms[i], &obs)
@@ -77,6 +82,10 @@ func (b box) overlap(o box) float64 {
 		return 0
 	}
 	return w * h
+}
+
+func (b box) contains(x, y float64) bool {
+	return x >= b.x1-eps && x <= b.x2+eps && y >= b.y1-eps && y <= b.y2+eps
 }
 
 func (b box) union(o box) box {
@@ -153,13 +162,22 @@ type labelRef struct {
 // buildScene collects every obstacle a piece of text must avoid. Symbol
 // Reference/Value blocks are NOT included here: they are appended one by one
 // as they are placed, so each block also avoids the blocks placed before it.
-func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []labelRef) {
+// The names slice runs parallel to obs and says what each rectangle IS, so a
+// residual overlap can be reported as "over body U1" rather than a number.
+// Autoplace itself only scores areas and ignores it.
+func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []string, []labelRef) {
 	var obs []box
+	var names []string
+	add := func(b box, name string) {
+		obs = append(obs, b)
+		names = append(names, name)
+	}
+
 	for _, s := range syms {
 		x1, y1, x2, y2 := metrics.BodyBBox(s)
-		obs = append(obs, box{x1, y1, x2, y2}.inflate())
+		add(box{x1, y1, x2, y2}.inflate(), "body "+s.Reference)
 		for _, p := range s.Pins {
-			obs = append(obs, centeredBox(p.X, p.Y, pinSize, pinSize))
+			add(centeredBox(p.X, p.Y, pinSize, pinSize), "pin "+s.Reference+"."+p.Number)
 		}
 	}
 	for _, w := range sch.Wires() {
@@ -167,17 +185,17 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []labe
 		if !ok {
 			continue
 		}
-		obs = append(obs, box{
+		add(box{
 			math.Min(ax, bx) - wireThick/2, math.Min(ay, by) - wireThick/2,
 			math.Max(ax, bx) + wireThick/2, math.Max(ay, by) + wireThick/2,
-		})
+		}, "wire")
 	}
 	var labels []labelRef
 	for _, c := range sch.Root().Children {
 		switch c.Head() {
 		case "no_connect":
 			if x, y, ok := atXY(c); ok {
-				obs = append(obs, centeredBox(x, y, ncSize, ncSize))
+				add(centeredBox(x, y, ncSize, ncSize), "no-connect")
 			}
 		case "label":
 			x, y, ok := atXY(c)
@@ -190,10 +208,10 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []labe
 			}
 			rot := normalizeAngle(atRot(c))
 			labels = append(labels, labelRef{node: c, name: name, x: x, y: y, rot: rot, obsIdx: len(obs)})
-			obs = append(obs, labelBox(name, x, y, rot))
+			add(labelBox(name, x, y, rot), "label "+name)
 		}
 	}
-	return obs, labels
+	return obs, names, labels
 }
 
 // placeFields re-anchors one instance's visible Reference/Value block and
@@ -261,25 +279,36 @@ func bestCandidate(body box, w, h float64, obs []box) box {
 	return best
 }
 
-// fieldCandidates returns the eight block positions around a body, in
-// preference order: right, top, left, bottom, then the four diagonals. For a
-// vertical passive this puts the block to its right and for a horizontal one
-// above it, which is the KiCad convention.
+// fieldCandidates returns the block positions around a body: eight
+// directions — right, top, left, bottom, then the four diagonals — at each of
+// fieldReach's distances. For a vertical passive the first candidate puts the
+// block to its right and for a horizontal one above it, which is the KiCad
+// convention, and the caller only moves off a candidate for a strictly better
+// score, so the conventional spot wins every tie.
+//
+// Distance is a candidate axis because direction alone is not enough: in a
+// decoupling farm every one of the eight near positions lands on a
+// neighbouring capacitor, and the pass could only pick the least bad overlap.
+// One or two cells further out there is usually clear paper, which is what a
+// person drawing this would use — while staying close enough that the text
+// still reads as belonging to its own symbol.
 func fieldCandidates(body box, w, h float64) []box {
-	left := body.x1 - fieldMargin - w/2
-	right := body.x2 + fieldMargin + w/2
-	top := body.y1 - fieldMargin - h/2
-	bottom := body.y2 + fieldMargin + h/2
 	midX := (body.x1 + body.x2) / 2
 	midY := (body.y1 + body.y2) / 2
 
-	centers := [8][2]float64{
-		{right, midY}, {midX, top}, {left, midY}, {midX, bottom},
-		{right, top}, {right, bottom}, {left, top}, {left, bottom},
-	}
-	out := make([]box, 0, len(centers))
-	for _, c := range centers {
-		out = append(out, centeredBox(c[0], c[1], w, h))
+	out := make([]box, 0, 8*len(fieldReach))
+	for _, extra := range fieldReach {
+		left := body.x1 - fieldMargin - extra - w/2
+		right := body.x2 + fieldMargin + extra + w/2
+		top := body.y1 - fieldMargin - extra - h/2
+		bottom := body.y2 + fieldMargin + extra + h/2
+
+		for _, c := range [8][2]float64{
+			{right, midY}, {midX, top}, {left, midY}, {midX, bottom},
+			{right, top}, {right, bottom}, {left, top}, {left, bottom},
+		} {
+			out = append(out, centeredBox(c[0], c[1], w, h))
+		}
 	}
 	return out
 }
