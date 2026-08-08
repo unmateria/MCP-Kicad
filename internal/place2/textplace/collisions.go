@@ -101,7 +101,7 @@ func Collisions(sch *sexp.Schematic) []Collision {
 	}
 	for _, i := range labelOrder(labels) {
 		l := labels[i]
-		report(l.name, labelBox(l.name, l.x, l.y, l.rot), l.obsIdx, &[2]float64{l.x, l.y})
+		report(l.name, labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), l.obsIdx, &[2]float64{l.x, l.y})
 	}
 
 	sort.SliceStable(out, func(a, b int) bool {

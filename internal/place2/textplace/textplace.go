@@ -35,8 +35,13 @@ const (
 	wireThick   = 0.6  // collision thickness of a wire segment, mm
 	ncSize      = 1.5  // collision box side of a no_connect marker, mm
 	pinSize     = 1.0  // collision box side of a pin tip, mm
-	minExtent   = 0.6  // minimum extent given to a degenerate obstacle box, mm
-	eps         = 0.01 // coordinate/area tolerance, mm
+	// Pin numbers are printed along the pin line, roughly half a grid step in
+	// from the tip. Measured on a rendered NE5532: pin "2" of a pin at
+	// (25.40, 33.02) draws across x 26.25..27.03, y 31.33..32.60.
+	pinNumberInset = 1.27
+	pinNumberSize  = 1.6
+	minExtent      = 0.6  // minimum extent given to a degenerate obstacle box, mm
+	eps            = 0.01 // coordinate/area tolerance, mm
 )
 
 // fieldReach lists the extra distances, beyond fieldMargin, a text block may
@@ -60,7 +65,7 @@ func Autoplace(sch *sexp.Schematic) (fieldsMoved, labelsFlipped int) {
 	obs, _, labels := buildScene(sch, syms)
 
 	for _, i := range symbolOrder(syms) {
-		fieldsMoved += placeFields(insts[i], syms[i], &obs)
+		fieldsMoved += placeFields(insts[i], syms[i], &obs, foreignBodies(syms, i))
 	}
 	for _, i := range labelOrder(labels) {
 		if flipLabel(&labels[i], obs) {
@@ -132,31 +137,95 @@ func textWidth(s string) float64 {
 	return charWidth*float64(len([]rune(s))) + textPadding
 }
 
-// labelBox estimates the rendered extent of a net label. The text reads away
-// from the anchor along the label's rotation (0 → +x, 180 → −x, 90 → up,
-// 270 → down) and is centred on the anchor in the perpendicular axis.
-func labelBox(name string, x, y, rot float64) box {
+// labelBox estimates where KiCad actually DRAWS a net label.
+//
+// The angle alone does not decide which way the text reads — the horizontal
+// justification does. Measured by exporting SVG for all eight combinations
+// and reading back the stroked-text extents:
+//
+//	                 justify left        justify right
+//	angle 0 / 180    text runs +x        text runs −x
+//	angle 90 / 270   text runs −y (up)   text runs +y (down)
+//
+// So the angle only picks the axis; 0 and 180 draw identically, as do 90 and
+// 270. Believing the angle flipped the text is what let labels sit on top of
+// pin numbers even after the pass thought it had moved them away.
+//
+// Perpendicular placement follows "justify … bottom": the text's baseline is
+// the anchor, so a horizontal label occupies the line ABOVE its anchor.
+func labelBox(name string, x, y, rot float64, justifyRight bool) box {
 	w, h := textWidth(name), lineHeight
-	switch normalizeAngle(rot) {
-	case 90:
-		return box{x - h/2, y - w, x + h/2, y}
-	case 180:
-		return box{x - w, y - h/2, x, y + h/2}
-	case 270:
-		return box{x - h/2, y, x + h/2, y + w}
-	default:
-		return box{x, y - h/2, x + w, y + h/2}
+	if a := normalizeAngle(rot); a == 90 || a == 270 {
+		if justifyRight {
+			return box{x - h, y, x, y + w}
+		}
+		return box{x - h, y - w, x, y}
 	}
+	if justifyRight {
+		return box{x - w, y - h, x, y}
+	}
+	return box{x, y - h, x + w, y}
 }
 
 // labelRef is one (label ...) node together with the index of its box in the
 // obstacle slice, so the label can be scored against everything but itself.
 type labelRef struct {
-	node   *sexp.Node
-	name   string
-	x, y   float64
-	rot    float64
-	obsIdx int
+	node         *sexp.Node
+	name         string
+	x, y         float64
+	rot          float64
+	justifyRight bool // horizontal justification: what actually aims the text
+	obsIdx       int
+}
+
+// labelJustifyRight reports whether a label node carries (justify right …).
+func labelJustifyRight(n *sexp.Node) bool {
+	effects := sexp.FindList(n, "effects")
+	if effects == nil {
+		return false
+	}
+	j := sexp.FindList(effects, "justify")
+	if j == nil {
+		return false
+	}
+	for i := 1; i < len(j.Children); i++ {
+		if sexp.AtomValue(j, i) == "right" {
+			return true
+		}
+	}
+	return false
+}
+
+// setLabelJustify rewrites a label's horizontal justification, keeping the
+// vertical part ("bottom") that KiCad writes alongside it.
+func setLabelJustify(n *sexp.Node, right bool) {
+	effects := sexp.FindList(n, "effects")
+	if effects == nil {
+		return
+	}
+	horizontal := "left"
+	if right {
+		horizontal = "right"
+	}
+	for i, c := range effects.Children {
+		if c.Head() != "justify" {
+			continue
+		}
+		vertical := ""
+		for k := 1; k < len(c.Children); k++ {
+			if v := sexp.AtomValue(c, k); v == "top" || v == "bottom" {
+				vertical = v
+			}
+		}
+		if vertical == "" {
+			effects.Children[i] = sexp.List(sexp.Atom("justify"), sexp.Atom(horizontal))
+			return
+		}
+		effects.Children[i] = sexp.List(sexp.Atom("justify"), sexp.Atom(horizontal), sexp.Atom(vertical))
+		return
+	}
+	effects.Children = append(effects.Children,
+		sexp.List(sexp.Atom("justify"), sexp.Atom(horizontal), sexp.Atom("bottom")))
 }
 
 // buildScene collects every obstacle a piece of text must avoid. Symbol
@@ -178,6 +247,14 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []stri
 		add(box{x1, y1, x2, y2}.inflate(), "body "+s.Reference)
 		for _, p := range s.Pins {
 			add(centeredBox(p.X, p.Y, pinSize, pinSize), "pin "+s.Reference+"."+p.Number)
+
+			// KiCad prints the pin NUMBER along the pin line, between the tip
+			// and the body. It is text like any other and was missing from
+			// this scene entirely, which is how net labels ended up written
+			// straight across it.
+			dx, dy := p.DirDelta()
+			add(centeredBox(p.X-dx*pinNumberInset, p.Y-dy*pinNumberInset, pinNumberSize, pinNumberSize),
+				"pin number "+s.Reference+"."+p.Number)
 		}
 	}
 	for _, w := range sch.Wires() {
@@ -207,8 +284,9 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []stri
 				name = sexp.AtomValue(c, 1)
 			}
 			rot := normalizeAngle(atRot(c))
-			labels = append(labels, labelRef{node: c, name: name, x: x, y: y, rot: rot, obsIdx: len(obs)})
-			add(labelBox(name, x, y, rot), "label "+name)
+			right := labelJustifyRight(c)
+			labels = append(labels, labelRef{node: c, name: name, x: x, y: y, rot: rot, justifyRight: right, obsIdx: len(obs)})
+			add(labelBox(name, x, y, rot, right), "label "+name)
 		}
 	}
 	return obs, names, labels
@@ -218,7 +296,7 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []stri
 // appends the resulting rectangle to obs. Returns how many property nodes were
 // actually rewritten (0 when the block was already good, which is what makes
 // the pass idempotent).
-func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box) int {
+func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box, foreign []box) int {
 	lines := visibleFields(inst)
 	if len(lines) == 0 {
 		return 0
@@ -249,7 +327,7 @@ func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box) int {
 	h := float64(len(lines))*lineHeight + float64(len(lines)-1)*lineGap
 
 	x1, y1, x2, y2 := metrics.BodyBBox(sym)
-	best := bestCandidate(box{x1, y1, x2, y2}.inflate(), w, h, *obs)
+	best := bestCandidate(box{x1, y1, x2, y2}.inflate(), w, h, *obs, foreign)
 	cx := sexp.Round2((best.x1 + best.x2) / 2)
 	cy := sexp.Round2((best.y1 + best.y2) / 2)
 
@@ -267,16 +345,60 @@ func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box) int {
 // bestCandidate picks the block position with the least obstacle overlap.
 // Candidates are generated in preference order, and only a strictly better
 // score displaces the incumbent, so ties resolve to the preferred side.
-func bestCandidate(body box, w, h float64, obs []box) box {
+//
+// A position is only considered when the text still reads as belonging to its
+// own symbol: clear of every foreign body, and closer to its own than to any
+// other. Without that rule, backing away from a crowded neighbour parks
+// "C2 100n" midway between two capacitors, where it is clean by area and
+// useless to a reader, who cannot tell which part it labels. Ownership beats
+// tidiness; only if no candidate qualifies does the lowest-overlap one win.
+func bestCandidate(body box, w, h float64, obs []box, foreign []box) box {
 	cands := fieldCandidates(body, w, h)
-	best := cands[0]
-	bestScore := overlapSum(best, obs, -1)
-	for _, c := range cands[1:] {
-		if s := overlapSum(c, obs, -1); s < bestScore-eps {
-			best, bestScore = c, s
+
+	best, bestScore := box{}, 0.0
+	found := false
+	fallback, fallbackScore := cands[0], overlapSum(cands[0], obs, -1)
+
+	for _, c := range cands {
+		s := overlapSum(c, obs, -1)
+		if s < fallbackScore-eps {
+			fallback, fallbackScore = c, s
+		}
+		if !ownsText(c, body, foreign) {
+			continue
+		}
+		if !found || s < bestScore-eps {
+			best, bestScore, found = c, s, true
 		}
 	}
-	return best
+	if found {
+		return best
+	}
+	return fallback
+}
+
+// ownsText reports whether a text block at c unambiguously belongs to the
+// symbol whose body is `body`: it touches no foreign body, and its centre is
+// nearer to its own body than to any other.
+func ownsText(c, body box, foreign []box) bool {
+	cx, cy := (c.x1+c.x2)/2, (c.y1+c.y2)/2
+	own := boxDistance(body, cx, cy)
+	for _, f := range foreign {
+		if c.overlap(f) > eps {
+			return false
+		}
+		if boxDistance(f, cx, cy) < own-eps {
+			return false
+		}
+	}
+	return true
+}
+
+// boxDistance is the distance from a point to a rectangle (0 when inside).
+func boxDistance(b box, px, py float64) float64 {
+	dx := math.Max(math.Max(b.x1-px, px-b.x2), 0)
+	dy := math.Max(math.Max(b.y1-py, py-b.y2), 0)
+	return math.Hypot(dx, dy)
 }
 
 // fieldCandidates returns the block positions around a body: eight
@@ -316,21 +438,36 @@ func fieldCandidates(body box, w, h float64) []box {
 // flipLabel rotates a colliding label around its anchor. The anchor is the
 // electrical connection point and never moves; only the reading direction
 // changes. Returns true when the node was rewritten.
+// A label has exactly four distinguishable orientations, not eight: the angle
+// picks the axis and the justification picks the direction along it, so
+// (0, right) and (180, right) draw the same text in the same place. Rotating
+// without setting the justification — which is what this pass used to do —
+// moves nothing at all.
+var labelOrientations = [4]struct {
+	rot   float64
+	right bool
+}{
+	{0, false},  // reads rightwards
+	{0, true},   // reads leftwards
+	{90, false}, // reads upwards
+	{90, true},  // reads downwards
+}
+
 func flipLabel(l *labelRef, obs []box) bool {
-	bestRot := l.rot
-	bestScore := overlapSum(labelBox(l.name, l.x, l.y, l.rot), obs, l.obsIdx)
+	bestRot, bestRight := l.rot, l.justifyRight
+	bestScore := overlapSum(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), obs, l.obsIdx)
 	if bestScore <= eps {
 		return false
 	}
-	for _, r := range [4]float64{0, 180, 90, 270} {
-		if r == l.rot {
+	for _, o := range labelOrientations {
+		if o.rot == l.rot && o.right == l.justifyRight {
 			continue
 		}
-		if s := overlapSum(labelBox(l.name, l.x, l.y, r), obs, l.obsIdx); s < bestScore-eps {
-			bestScore, bestRot = s, r
+		if s := overlapSum(labelBox(l.name, l.x, l.y, o.rot, o.right), obs, l.obsIdx); s < bestScore-eps {
+			bestScore, bestRot, bestRight = s, o.rot, o.right
 		}
 	}
-	if bestRot == l.rot {
+	if bestRot == l.rot && bestRight == l.justifyRight {
 		return false
 	}
 	atN := sexp.FindList(l.node, "at")
@@ -341,8 +478,9 @@ func flipLabel(l *labelRef, obs []box) bool {
 		atN.Children = append(atN.Children, sexp.Atom("0"))
 	}
 	atN.Children[3] = sexp.Atom(fmtCoord(bestRot))
-	l.rot = bestRot
-	obs[l.obsIdx] = labelBox(l.name, l.x, l.y, bestRot)
+	setLabelJustify(l.node, bestRight)
+	l.rot, l.justifyRight = bestRot, bestRight
+	obs[l.obsIdx] = labelBox(l.name, l.x, l.y, bestRot, bestRight)
 	return true
 }
 
@@ -570,3 +708,19 @@ func parseF(s string) float64 {
 }
 
 func fmtCoord(v float64) string { return fmt.Sprintf("%.6g", v) }
+
+// foreignBodies returns the body rectangles of every symbol except the one at
+// index skip — what a text block must not be mistaken for belonging to.
+// Power symbols are included: a reference parked on a GND symbol reads as
+// that symbol's own label just as badly.
+func foreignBodies(syms []sexp.SchematicSymbol, skip int) []box {
+	out := make([]box, 0, len(syms)-1)
+	for i, s := range syms {
+		if i == skip {
+			continue
+		}
+		x1, y1, x2, y2 := metrics.BodyBBox(s)
+		out = append(out, box{x1, y1, x2, y2}.inflate())
+	}
+	return out
+}

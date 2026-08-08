@@ -142,7 +142,7 @@ func textItems(t *testing.T, sch *sexp.Schematic) []textItem {
 			continue
 		}
 		name := sexp.StringValue(c, 1)
-		out = append(out, textItem{owner: "label:" + name, b: labelBox(name, x, y, atRot(c))})
+		out = append(out, textItem{owner: "label:" + name, b: labelBox(name, x, y, atRot(c), labelJustifyRight(c))})
 	}
 	return out
 }
@@ -235,7 +235,7 @@ func TestRotatedFieldBecomesHorizontalAndClear(t *testing.T) {
 	sch := mustParse(t, wrapSch(body))
 
 	before := blockOf(t, sch, "L1")
-	if got := before.overlap(labelBox("VOUT", 96, 100, 180)); got <= eps {
+	if got := before.overlap(labelBox("VOUT", 96, 100, 180, false)); got <= eps {
 		t.Fatalf("fixture is not colliding: overlap %.2f mm^2", got)
 	}
 
@@ -297,8 +297,12 @@ func TestLabelFlipsKeepingAnchor(t *testing.T) {
 	if x != 94.92 || y != 100 {
 		t.Errorf("label anchor moved to (%v, %v); it must stay at (94.92, 100)", x, y)
 	}
-	if rot := atRot(labelNode(t, sch, "A")); rot != 180 {
-		t.Errorf("expected the label to flip to 180, got %v", rot)
+	// Flipping a horizontal label means changing its JUSTIFICATION, not its
+	// angle: KiCad draws (0, right) and (180, right) identically, and an
+	// angle change on its own moves the text nowhere. Verified by exporting
+	// SVG for all eight angle/justify pairs and measuring the drawn glyphs.
+	if !labelJustifyRight(labelNode(t, sch, "A")) {
+		t.Error("expected the label to end up right-justified so it reads away from the body")
 	}
 	assertNoTextCollisions(t, sch)
 }
@@ -364,7 +368,7 @@ func TestFieldsStayNearWhenThereIsRoom(t *testing.T) {
 	}
 
 	// Nothing in the scene: the very first (nearest, right-hand) candidate wins.
-	got := bestCandidate(body, 6, 4, nil)
+	got := bestCandidate(body, 6, 4, nil, nil)
 	if got != cands[0] {
 		t.Errorf("with an empty scene the nearest conventional spot must win, got %+v want %+v", got, cands[0])
 	}
@@ -372,7 +376,7 @@ func TestFieldsStayNearWhenThereIsRoom(t *testing.T) {
 	// Block the whole near ring: the pass must then reach further out rather
 	// than settle for the least-bad overlap.
 	near := []box{{40, 40, 62, 70}}
-	got = bestCandidate(body, 6, 4, near)
+	got = bestCandidate(body, 6, 4, near, nil)
 	if got.overlap(near[0]) > eps {
 		return // found clear paper further out, which is the point
 	}
