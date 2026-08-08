@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"mcp-kicad/internal/compile"
+	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/sexp"
 )
 
@@ -171,7 +172,17 @@ func majorityNet(where []int) int {
 // the author never asked for.
 func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
 	type pinAt struct {
-		ref, number string
+		ref, number, name string
+	}
+
+	// label renders a pin the way a human reads a datasheet: "U1.2 (TRIG)".
+	// The bare number sent a real session to the PNG to work out what was
+	// touching what.
+	label := func(p pinAt) string {
+		if p.name == "" || p.name == "~" || p.name == p.number {
+			return p.ref + "." + p.number
+		}
+		return fmt.Sprintf("%s.%s (%s)", p.ref, p.number, p.name)
 	}
 	at := make(map[[2]float64][]pinAt)
 	var order [][2]float64
@@ -181,7 +192,7 @@ func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
 			if len(at[key]) == 0 {
 				order = append(order, key)
 			}
-			at[key] = append(at[key], pinAt{sym.Reference, p.Number})
+			at[key] = append(at[key], pinAt{sym.Reference, p.Number, p.Name})
 		}
 	}
 
@@ -214,9 +225,9 @@ func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
 					continue
 				}
 				return fmt.Errorf(
-					"%s.%s and %s.%s both sit at (%.2f, %.2f): touching pins are one net in KiCad, "+
-						"but the source declares them apart — change the cell count that places them",
-					pins[i].ref, pins[i].number, pins[j].ref, pins[j].number, key[0], key[1])
+					"%s and %s both sit at (%.2f, %.2f): touching pins are one net in KiCad, "+
+						"but the source declares them apart — change the dir/cells that places them",
+					label(pins[i]), label(pins[j]), key[0], key[1])
 			}
 		}
 	}
@@ -227,4 +238,48 @@ func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
 // given placed pin.
 func matchesDecl(decl, ref, number string) bool {
 	return sexp.PinRef{Reference: ref, PinNumber: number}.Matches(decl)
+}
+
+// flushPowerPairs reports pairs of power symbols of DIFFERENT rails whose
+// bodies are drawn touching.
+//
+// The netlist stays correct — KiCad and VerifyNetlist both agree the nets are
+// separate — but on paper a GND triangle flush against a VCC arrow reads as
+// one connected thing, and a reviewer will stop and ask. The placer avoids it
+// when it can; when the two pins face each other on one line there is nowhere
+// left to go, and then the fix belongs in the source: put more cells between
+// the parts. Silence would leave the author staring at a schematic that looks
+// shorted and verifies clean.
+func flushPowerPairs(sch *sexp.Schematic) []string {
+	type placed struct {
+		ref, rail      string
+		x1, y1, x2, y2 float64
+	}
+	netOf := sexp.TracePointNets(sch)
+
+	var syms []placed
+	for _, s := range sexp.ReadSymbols(sch) {
+		if !strings.HasPrefix(s.LibID, "power:") || len(s.Pins) == 0 {
+			continue
+		}
+		rail := netOf[[2]float64{sexp.Round2(s.Pins[0].X), sexp.Round2(s.Pins[0].Y)}]
+		x1, y1, x2, y2 := metrics.BodyBBox(s)
+		syms = append(syms, placed{s.Reference, rail, x1, y1, x2, y2})
+	}
+
+	const eps = 0.01
+	var out []string
+	for i := 0; i < len(syms); i++ {
+		for j := i + 1; j < len(syms); j++ {
+			a, b := syms[i], syms[j]
+			if a.rail == b.rail {
+				continue // same rail flush is the intended bus alignment
+			}
+			if a.x1 <= b.x2+eps && b.x1 <= a.x2+eps && a.y1 <= b.y2+eps && b.y1 <= a.y2+eps {
+				out = append(out, fmt.Sprintf("%s (%s) and %s (%s)", a.ref, a.rail, b.ref, b.rail))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

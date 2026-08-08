@@ -237,8 +237,15 @@ func (e *Env) handleListSymbolLibraries(_ context.Context, _ *mcp.CallToolReques
 func RegisterComponentTools(s *mcp.Server, env *Env) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "check_component_existence",
-		Description: "Search for a component in local KiCad libraries and SnapEDA. Query format: 'LibName:PartName' (e.g. 'Device:R') or keyword.",
+		Description: "Search for a component in local KiCad libraries and SnapEDA. Query format: 'LibName:PartName' (e.g. 'Device:R') or keyword. Tells you WHETHER a symbol exists; call symbol_pins to see what its pins are called.",
 	}, WrapTool(env.Log, "check_component_existence", env.handleCheckComponentExistence))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "symbol_pins",
+		Description: "List the real pins of a library symbol: number, name, electrical type and which side it points to. " +
+			"Call this BEFORE writing nets in a .design.json source — KiCad's pin names are often not the datasheet's " +
+			"(NE555P has THRES and ~{RST}, not THR and RESET), and guessing costs a compile cycle each time.",
+	}, WrapTool(env.Log, "symbol_pins", env.handleSymbolPins))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "fetch_external_part",

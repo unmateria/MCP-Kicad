@@ -250,6 +250,11 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	// we emitted implements exactly the netlist the source declared. The
 	// geometric gate cannot stand in for this — a wire landing on a foreign
 	// pin makes two nets one, which is geometrically consistent and silent.
+	if flush := flushPowerPairs(sch); len(flush) > 0 {
+		fmt.Fprintf(&sb, "power symbols drawn flush (different rails, reads as connected): %s — add cells between those parts\n",
+			strings.Join(flush, "; "))
+	}
+
 	defects := VerifyNetlist(sch, d)
 	switch {
 	case len(d.Nets) == 0:

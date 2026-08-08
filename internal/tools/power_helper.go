@@ -47,11 +47,22 @@ func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup
 	}
 	libDefAngle := sexp.PowerSymbolPinAngle(libSymbolDef(p.sch, libID))
 
-	// A power symbol dropped onto another part's pin joins that net to the
-	// rail — a short with no wire to show for it. Let the placer step further
-	// out instead. The target's own pin is not an obstacle: the stub runs
-	// from it by definition.
-	occupied := func(x, y float64) bool {
+	// Two things make a spot unusable, and both were learned the hard way.
+	//
+	// A power symbol dropped onto another part's PIN joins that net to the
+	// rail — a short with no wire to show for it. The target's own pin is of
+	// course not an obstacle: the stub runs from it by definition.
+	//
+	// And a spot whose BODY would touch an already-placed symbol's body is a
+	// lie to the reader: a GND triangle drawn flush against a VCC arrow reads
+	// as one connected thing. The nets stay correctly separate — KiCad and the
+	// netlist verifier both agree — but a person reviewing the sheet sees
+	// GND touching VCC, which is worse than useless. Reported from a real
+	// session; the placer only checked pins before.
+	netOf := sexp.TracePointNets(p.sch)
+	targetNet := netOf[[2]float64{sexp.Round2(target.X), sexp.Round2(target.Y)}]
+
+	blocked := func(x, y float64) bool {
 		for _, s := range sexp.ReadSymbols(p.sch) {
 			for _, pin := range s.Pins {
 				if approxEq(pin.X, x) && approxEq(pin.Y, y) &&
@@ -62,7 +73,24 @@ func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup
 		}
 		return false
 	}
-	dec := power.ComputeClear(libID, target, libDefAngle, "", occupied)
+	ugly := func(x, y float64) bool {
+		cand := powerBodyBox(x, y)
+		for _, s := range sexp.ReadSymbols(p.sch) {
+			// Bodies of same-rail power symbols may sit flush — that is the
+			// bus alignment the project wants. Anything else must not touch.
+			if len(s.Pins) > 0 && isPowerLib(s.LibID) {
+				if n := netOf[[2]float64{sexp.Round2(s.Pins[0].X), sexp.Round2(s.Pins[0].Y)}]; n == targetNet && n != "" {
+					continue
+				}
+			}
+			x1, y1, x2, y2 := metrics.BodyBBox(s)
+			if boxesTouch(cand, [4]float64{x1, y1, x2, y2}) {
+				return true
+			}
+		}
+		return false
+	}
+	dec := power.ComputeClear(libID, target, libDefAngle, "", blocked, ugly)
 
 	if p.reg.Has(libID, dec.X, dec.Y) {
 		return fmt.Sprintf("dedup: %s already at (%.2f,%.2f)", libID, dec.X, dec.Y), true, true
@@ -314,4 +342,24 @@ func distance(a, b [2]float64) float64 {
 		dy = -dy
 	}
 	return dx + dy
+}
+
+// powerBodyBox is the rectangle a power symbol's graphic occupies once placed:
+// measured at 5.08 mm square, centred on its connection pin.
+func powerBodyBox(x, y float64) [4]float64 {
+	const half = 2.54
+	return [4]float64{x - half, y - half, x + half, y + half}
+}
+
+// boxesTouch reports overlap OR a shared edge. A shared edge matters here:
+// two power symbols exactly flush read as one glyph on paper.
+func boxesTouch(a, b [4]float64) bool {
+	const eps = 0.01
+	return a[0] <= b[2]+eps && b[0] <= a[2]+eps &&
+		a[1] <= b[3]+eps && b[1] <= a[3]+eps
+}
+
+// isPowerLib reports whether a lib_id names a power-library symbol.
+func isPowerLib(libID string) bool {
+	return strings.HasPrefix(libID, "power:") || libID == "Device:PWR_FLAG"
 }

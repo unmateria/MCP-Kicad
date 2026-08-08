@@ -65,7 +65,7 @@ func AnchorOffset(partName string, dir float64) (dx, dy float64) {
 // Compute builds a Decision for a target pin. The required rotation makes the
 // power symbol's pin face back toward the target.
 func Compute(libID string, target sexp.PinInfo, libDefPinAngle float64, ref string) Decision {
-	return ComputeClear(libID, target, libDefPinAngle, ref, nil)
+	return ComputeClear(libID, target, libDefPinAngle, ref, nil, nil)
 }
 
 // maxStubSteps bounds how far a power symbol may back away from its pin
@@ -73,29 +73,50 @@ func Compute(libID string, target sexp.PinInfo, libDefPinAngle float64, ref stri
 // its own right rather than as the symbol's own tail.
 const maxStubSteps = 3
 
-// ComputeClear is Compute with somewhere to go when the spot is taken. The
-// anchor is one grid step along the pin's own direction, and nothing used to
-// check whether another part's pin was already sitting there — which lands a
-// GND symbol on a foreign pin and shorts that net to ground, silently and
-// with no wire drawn. Found by the generated-design properties, not by any
-// hand-written circuit.
+// ComputeClear is Compute with somewhere to go when the spot is taken, and it
+// distinguishes two very different kinds of "taken".
 //
-// occupied reports whether a coordinate already holds a pin (pass nil to skip
-// the check). When every candidate is taken the nearest one is returned
-// anyway: VerifyNetlist will refuse the result, which beats guessing.
-func ComputeClear(libID string, target sexp.PinInfo, libDefPinAngle float64, ref string, occupied func(x, y float64) bool) Decision {
+// `blocked` means placing here would be WRONG: another net's pin is there, and
+// touching it grounds that net with no wire to show for it. Never acceptable.
+//
+// `ugly` means placing here would be UNREADABLE but correct: the body would sit
+// flush against another symbol, so a GND triangle ends up drawn against a VCC
+// arrow and reads as one connected thing.
+//
+// Keeping them apart matters. When they were one predicate, a crowded pin had
+// every candidate rejected for being ugly, the search fell through to its
+// last resort — and the last resort landed on a foreign pin, turning a
+// cosmetic problem into four shorted nets. Now the search degrades in the
+// right order: clean, then merely ugly, then (only if there is no choice) the
+// nearest spot, where VerifyNetlist will catch what geometry could not avoid.
+func ComputeClear(libID string, target sexp.PinInfo, libDefPinAngle float64, ref string,
+	blocked, ugly func(x, y float64) bool) Decision {
+
 	partName := strings.TrimPrefix(libID, "power:")
 	dx, dy := AnchorOffset(partName, target.Direction)
 
 	bx := sexp.SnapGrid(target.X + dx)
 	by := sexp.SnapGrid(target.Y + dy)
-	if occupied != nil {
-		for step := 1; step <= maxStubSteps; step++ {
+
+	isBlocked := func(x, y float64) bool { return blocked != nil && blocked(x, y) }
+	isUgly := func(x, y float64) bool { return ugly != nil && ugly(x, y) }
+
+	if blocked != nil || ugly != nil {
+		chosen := false
+		// Pass 1: a spot that is neither wrong nor ugly.
+		for step := 1; step <= maxStubSteps && !chosen; step++ {
 			cx := sexp.SnapGrid(target.X + dx*float64(step))
 			cy := sexp.SnapGrid(target.Y + dy*float64(step))
-			if !occupied(cx, cy) {
-				bx, by = cx, cy
-				break
+			if !isBlocked(cx, cy) && !isUgly(cx, cy) {
+				bx, by, chosen = cx, cy, true
+			}
+		}
+		// Pass 2: correctness first — accept ugly rather than short a net.
+		for step := 1; step <= maxStubSteps && !chosen; step++ {
+			cx := sexp.SnapGrid(target.X + dx*float64(step))
+			cy := sexp.SnapGrid(target.Y + dy*float64(step))
+			if !isBlocked(cx, cy) {
+				bx, by, chosen = cx, cy, true
 			}
 		}
 	}
