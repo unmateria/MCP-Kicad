@@ -4,10 +4,31 @@
 
 - **Producción:** `internal/router/` (A* legacy) + Steiner pre-pass de
   `internal/route2/`.
-- **Fallback:** `internal/route2/` (`astarpp`) — usado por el optimizador.
+- `internal/route2/` (`astarpp`) ya NO tiene consumidor propio: el optimizador
+  que lo usaba se retiró en F4 (commit 7860262). De route2 solo vive el
+  pre-paso Steiner, invocado desde `tools/steiner_helper.go`.
 - **Pendiente cutover total:** sustituir todas las llamadas a
   `router.NewRouter` por `route2.New` en `tools/schematic.go` y
   `tools/netlist.go`.
+
+## Regla intocable: ningún cable toca un pin de otro net
+
+En KiCad, tocar la punta de un pin ES conexión. Un cable que termina en —o
+cruza— un pin ajeno fusiona dos nets, y después **ya no hay quien lo detecte**:
+queda un solo net consistente, sin cruces, y la puerta geométrica no tiene nada
+que objetar. Hay que impedirlo al dibujar:
+
+- **A\*:** `router.RouteAvoiding(x1,y1,x2,y2, avoid)` bloquea las puntas de los
+  demás nets durante la llamada y las restaura al salir.
+- **Stubs forzados:** `routeWithExits` *afirma* los primeros y últimos 2.54 mm
+  en la dirección del pin, saltándose la búsqueda; si un stub caería sobre un
+  pin ajeno, se descarta (entrar de frente es un detalle estético, un
+  cortocircuito no).
+- **Weld:** `touchesForeignPin` antes de `commit`.
+- **Símbolos de power:** `power.ComputeClear` se aleja hasta 3 celdas.
+
+Los 6 cortocircuitos que el property test destapaba eran esta única regla
+ausente en esos sitios.
 
 ## Steiner pre-pass
 

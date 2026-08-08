@@ -53,6 +53,13 @@ go run ./cmd/demo_apply_template_opamp
 
 # End-to-end smoke test (compiles led_18650 + ne5532_buf + ne555_astable)
 go run ./cmd/verify_e2e
+
+# Property test: generates designs from fixed seeds and asserts the compiler's
+# invariants on every one (either compiles or is refused, never panics; zero gate
+# violations; the emitted netlist equals the declared one). Reproduce a failure
+# with its seed; keep the generated source + schematic for inspection via FUZZ_OUT.
+go test ./internal/tools/ -run TestCompileProperties -v
+FUZZ_OUT=/path/to/dir go test ./internal/tools/ -run TestCompileProperties
 ```
 
 ### Canonical circuits
@@ -85,14 +92,14 @@ The server exposes MCP tools that an LLM calls to design PCBs. The tool implemen
 | `cmd/server` | Entry point, config validation, MCP server bootstrap |
 | `cmd/pininfo` | Utility to extract pin positions from `.kicad_sym` files |
 | `internal/config` | Reads `config.ini` via `gopkg.in/ini.v1`; auto-detects KiCad install; `os.Exit(1)` on bad config |
-| `internal/sexp` | S-expression parser/writer for KiCad files (the AST engine); includes pin resolution (`pins.go`) and netlist tracer (`nets.go`) |
+| `internal/sexp` | S-expression parser/writer for KiCad files (the AST engine); includes pin resolution (`pins.go`), netlist tracer (`nets.go`), symbol graphics (`graphics.go`) and mirror support (`applyMirror` + `SetSymbolMirror`, reflecting the FINISHED placement — see Measured KiCad Behaviour) |
 | `internal/compile` | Declarative design compiler: parses `.design.json`, resolves pin-anchored placement into absolute coordinates, produces the layout consumed by `tools/compile.go` |
-| `internal/router` | A* orthogonal grid router (`astar.go`) used by `connect_netlist` and the compiler's routing pass |
+| `internal/router` | A* orthogonal grid router (`astar.go`) used by `connect_netlist` and the compiler's routing pass. `RouteAvoiding` blocks the pin tips of every other net for one call — see the no-foreign-pin rule below |
 | `internal/place2/cluster` | Functional cluster detection (decoupling caps adjacent to IC, I²C pull-ups, LC filters, crystals + load caps, voltage dividers, op-amp feedback, headers) |
-| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires. KiCad draws a field at (field angle + symbol rotation): fields on 90/270 symbols carry a compensating 90. Candidates are 8 directions × 3 distances (`fieldReach`) — direction alone cannot solve a decoupling farm, where every near spot lands on a neighbour. `Collisions()` reports what still overlaps, which is how text quality is measured rather than eyeballed. |
-| `internal/place2/weld` | Label-pair upgrader: same-net islands joined only by labels get a real wire (straight/L/Z) when a clean corridor exists, validated against `gate.Check`; redundant labels removed, one kept as net documentation. Runs after the gate in `compile_schematic`. |
+| `internal/place2/textplace` | Field autoplacer: repositions reference/value text and flips net labels so they clear symbol bodies and wires. KiCad draws a field at (field angle + symbol rotation): fields on 90/270 symbols carry a compensating 90. Candidates are 8 directions × 3 distances (`fieldReach`) — direction alone cannot solve a decoupling farm, where every near spot lands on a neighbour. `Collisions()` reports what still overlaps, which is how text quality is measured rather than eyeballed. Rows of passives share one side (`rowSides`) so a farm does not label itself inconsistently — imposed only when that side is clear for every member. |
+| `internal/place2/weld` | Label-pair upgrader: same-net islands joined only by labels get a real wire (straight/L/Z) when a clean corridor exists, validated against `gate.Check` AND against foreign pin tips (the gate cannot see that short afterwards); redundant labels removed, one kept as net documentation. Reach is **half the drawing's diagonal** (floor 50.8 mm), not a fixed length: what makes a wire hard to follow is its size relative to the sheet. Runs after the gate in `compile_schematic`. |
 | `internal/place2/templates` | Substructure library + `Stamp` API used by `apply_template`. Templates: op-amp non-inverting, voltage divider, MCU minimal, LM7805 regulator, I²C pull-ups. |
-| `internal/place2/power` | Unified `#PWR` placer — pin-direction offset 2.54 mm, dedup by (libID, snapped position), bus alignment of same-rail symbols. Three previous power-placement sites in `tools/schematic.go` and `tools/netlist.go` converge here via `Env.NewPowerEmitter`. |
+| `internal/place2/power` | Unified `#PWR` placer — pin-direction offset 2.54 mm, dedup by (libID, snapped position), bus alignment of same-rail symbols. `ComputeClear` steps further out (up to 3 cells) when the anchor is already occupied by a pin: dropping a GND symbol on a foreign pin grounds that net with no wire to show for it. Three previous power-placement sites in `tools/schematic.go` and `tools/netlist.go` converge here via `Env.NewPowerEmitter`. |
 | `internal/place2/cluster/canonical` | Extra detectors registered via `init()`: `bypass_nonpower`, `series_led`, `oscillator_rc`, `feedback_divider`. Add new ones in `canonical/<kind>.go`. |
 | `internal/route2/steiner.go` | Steiner trunk + collinear-group detector. Triggered in `tools/netlist.go::routeNets` for nets with ≥4 colinear pins (≥75% of net). |
 | `internal/place2/metrics` | Objective layout-quality scoring (bends, crossings, wires-through-symbol, total wire length); used by `layout_metrics` tool and `cmd/measure_layout` |
@@ -227,6 +234,11 @@ NewRouter(syms []sexp.SchematicSymbol, existingWires []*sexp.Node) *Router
 // Output is a minimal slice of grid-snapped waypoints (collinear points merged).
 (r *Router) Route(x1, y1, x2, y2 float64) [][2]float64
 
+// Route with the pin tips of every OTHER net blocked for the duration of the
+// call (restored on return). This is the routing half of the no-foreign-pin
+// rule; prefer it over Route whenever the net being wired is known.
+(r *Router) RouteAvoiding(x1, y1, x2, y2 float64, avoid [][2]float64) [][2]float64
+
 // Mark a routed path as soft obstacles for subsequent Route calls.
 (r *Router) MarkWire(path [][2]float64)
 
@@ -252,7 +264,7 @@ File I/O pattern: `os.ReadFile` → `ParseSchematic`/`ParsePCB` → mutate AST �
 | `check_component_existence` | `components.go` | Local libs → global KiCad libs → SnapEDA fallback (up to 5 results) |
 | `fetch_external_part` | `components.go` | Downloads symbol + footprint to `libs/downloaded/{dest}/` |
 | `register_library` | `components.go` | Appends entry to `sym-lib-table` or `fp-lib-table` |
-| `compile_schematic` | `compile.go` | Compile a `.design.json` source into a complete `.kicad_sch` (placement, wiring, power symbols, no_connects, gate, weld, textplace, ERC, PNG preview). The primary authoring path. |
+| `compile_schematic` | `compile.go` | Compile a `.design.json` source into a complete `.kicad_sch`. The primary authoring path. **Fails** (returns an error, while still writing the schematic and PNG so the defect can be diagnosed) when the emitted netlist differs from the declared one. |
 | `design_guide` | `design_guide.go` | Read-only: human-schematic conventions and spacing recipes for `.design.json` authors (embedded `design_guide.md`). Read before authoring a source. |
 | `modify_schematic` | `schematic.go` | See actions below |
 | `read_schematic` | `schematic.go` | Lists placed symbols + pin positions; ASCII layout grid; connectivity status |
@@ -293,20 +305,108 @@ Daisy-chains pins within each net (pin[0]→pin[1]→…). Auto-inserts junction
 ```
 1. Write / edit the .design.json source (see docs/compiler/FORMAT.md)
 2. compile_schematic  ← one call: placement, wiring, power, gate, ERC, PNG
-3. Look at the PNG and the ERC section of the report
+3. Read the report, then look at the PNG:
+     netlist:  MUST say "verified". "FAILED" is a real defect, not cosmetic —
+               the schematic does not implement the netlist you declared.
+     gate:     what it demoted to labels, and why
+     text:     residual text collisions; zero is achievable (2 of the 7 are)
 4. Iterate on the source and recompile
+```
+
+**`CompileDesign` pass order** (`internal/tools/compile.go`) — the order is load
+bearing, not incidental:
+
+```
+parse source → resolve placement → embed lib symbols → emit symbols (+mirror)
+  → checkPinContacts        ← reject touching pins BEFORE any wire is drawn
+  → wiregen (closed form)
+  → routeNets (A*, foreign pin tips blocked) / power symbols per pin
+  → ensurePowerFlags        ← MUST precede the gate: it adds geometry
+  → gate.Enforce            ← guarantees only what exists when it runs
+  → weld                    ← validated against gate.Check AND foreign pins
+  → stripQuietLabels → applyNoConnects → textplace → fitToSheet
+  → VerifyNetlist           ← post-condition; error if it differs
+  → write → metrics → ERC → PNG
 ```
 
 ### Not Yet Implemented
 
+**The PCB side barely exists** and is the one open front. `internal/tools/pcb.go`
+is 77 lines: `move_footprint` and `define_edge_cuts`, both operating on a
+`.kicad_pcb` that something else must have created. There is no board creation,
+no netlist import from the schematic, no placement, no routing, no fabrication
+output. The schematic side is where all the machinery lives.
+
+- `compile_pcb` — create a `.kicad_pcb` from a compiled schematic: netlist
+  import, footprint placement, edge cuts, DRC. The natural next step, and the
+  recipe that worked for the schematic applies: declarative source → deterministic
+  compile → geometric gate → verify against `kicad-cli`, measuring rather than
+  assuming what KiCad does.
 - `auto_route` — DSN → Freerouting → SES orchestration
 - `export_fabrication` — Gerbers, drill files, and BOM
 - PCBWay download support (token parsed from config but no client exists)
 - KiCad official library auto-clone on first use
 
+**Known open items on the schematic side** (all cosmetic; the electrical
+invariants are closed):
+
+- `textplace.rowSides` is implemented and tested but never fires on the corpus:
+  in `demo_mcu_i2c` all four sides of the capacitor row are refused — top and
+  bottom to the rails (correct), left and right to a `PWR_FLAG` the compiler
+  parked in the middle of the farm. Fixing that needs the flag to know its
+  neighbours' text budget, which means reordering the pipeline (flags run before
+  the gate, text placement runs last). Two attempts are recorded as failures:
+  demanding 5 mm clearance changes nothing, and giving the flag free choice of
+  direction and distance makes the corpus *worse* (19 → 34 collisions), because
+  "most clearance to bodies" is exactly where the text needs to go.
+- 19 residual text collisions across the corpus, worst 2.46 mm², half below
+  0.2 mm² (0.08 mm² is a 0.3 × 0.3 mm smudge). Check whether an overlap is even
+  visible before touching placement for it.
+
+## Measured KiCad Behaviour (do not re-derive from memory)
+
+Four "obvious" assumptions about KiCad were written into this codebase as
+certainties and all four turned out to be wrong. They were found by measuring,
+never by reasoning. **When in doubt about what KiCad does, measure it:**
+
+```bash
+# Connectivity — what nets KiCad actually reads from a schematic
+kicad-cli sch export netlist -o out.net file.kicad_sch
+
+# Text/graphic geometry — where KiCad actually DRAWS something
+kicad-cli sch export svg --exclude-drawing-sheet -o svgdir file.kicad_sch
+# NOTE: the <text> elements in that SVG are invisible (opacity=0) selection
+# helpers. What is drawn are the paths inside <g class="stroked-text">; measure
+# those, or you will measure a lie.
+```
+
+| Question | Measured answer |
+|---|---|
+| Wire crosses a pin tip mid-segment | **Not connected.** The pin stays on its own net |
+| Same wire plus a junction there | **Connected** |
+| Wire *ends* on the pin tip | **Connected** — this is the silent short |
+| `(mirror y)` on a rotated symbol | Applied **after** the rotation, flipping the finished placement's X axis. Mirror-then-rotate agrees at 0°/180° and disagrees at 90°/270° |
+| What aims a net label's text | The **justification**, not the angle. The angle only picks the axis, so `(0,right)` and `(180,right)` draw identically. Rotating a label without setting `justify` moves nothing |
+| Where a label sits perpendicular | `justify … bottom` means the baseline is the anchor, so a horizontal label occupies the line **above** it |
+
+`sexp.TraceNets` agrees with KiCad on all the connectivity rows, which is what
+makes `tools.VerifyNetlist` trustworthy. Note it cannot self-validate a
+*writing* convention: for mirror, emitter and reader shared our own geometry,
+so only `kicad-cli` could settle it.
+
+**Compilation is NOT byte-for-byte reproducible** — UUIDs are freshly random on
+every run. Geometry and connectivity are deterministic. To diff two outputs,
+normalise first:
+
+```bash
+sed 's|"/\?[0-9a-f]\{8\}-[0-9a-f-]*"|"UUID"|g' out.kicad_sch
+```
+
 ## Non-Negotiable Rules
 
 - **No regex on KiCad files.** Use the S-expression AST parser (`internal/sexp`) for all reads and writes of `.kicad_sch` and `.kicad_pcb`. Parenthesis integrity is sacred.
+- **No wire may touch a pin of another net.** Touching a pin tip IS a connection in KiCad, so a wire that ends on or crosses a foreign pin merges two nets — and afterwards nothing can detect it: the result is one consistent net with no crossing, so the geometric gate has nothing to object to. Every code path that draws wire must honour this: the A* (`router.RouteAvoiding`), the forced entry/exit stubs in `routeWithExits` (they bypass the search, so they need their own check), the welder (`weld.touchesForeignPin`) and the power placer (`power.ComputeClear`). One rule, four places; missing it in any of them shorts a net silently.
+- **Anything that adds geometry belongs UPSTREAM of the gate.** `ensurePowerFlags` used to run after `gate.Enforce`, putting a symbol and a stub wire into the schematic that nothing ever checked — a cross-net crossing survived to the output. The gate's guarantee only covers what exists when it runs.
 - **Determinism in the placement/routing path.** Never `range` over a Go map in cluster detection, net tracing, placement or routing code — sort keys first (this was the root cause of months of heisenbugs; see `cluster.refOrder` and the sorted net naming in `sexp/nets.go`).
 - **kicad-cli reports go to a file.** `kicad-cli sch erc/drc` writes its JSON report ONLY to the `-o` file, never stdout. Parsing stdout silently yields zero violations (this bug made ERC blind for months).
 - **Fail fast on config.** Validate `config.ini` at startup; call `os.Exit(1)` on any missing required path or key.
