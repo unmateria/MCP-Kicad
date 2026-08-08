@@ -425,7 +425,30 @@ func (e *Env) handleCompileSchematic(_ context.Context, _ *mcp.CallToolRequest, 
 		}
 		d, err := compile.ParseDesign([]byte(input.Design))
 		if err != nil {
-			return toolText(fmt.Sprintf("error: the inline design source is not valid: %v\n\nSee design_guide and docs/compiler/FORMAT.md.", err)), nil, nil
+			// Show the shape, not just the complaint. A caller who cannot read
+			// the repo has no other way to see what was expected, and guessing
+			// it from successive rejections is how the first real session went.
+			return toolText(fmt.Sprintf(`error: the inline design source is not valid: %v
+
+Expected shape (call design_guide for the full format and a worked example):
+
+{
+  "version": 1,
+  "project": "my_circuit",
+  "blocks": [
+    { "name": "main", "symbols": [
+        { "ref": "R1", "lib": "Device:R", "value": "10k" },
+        { "ref": "D1", "lib": "Device:LED", "value": "RED",
+          "place": { "pin": "A", "at": "R1.2", "dir": "right", "cells": 3 } }
+    ]}
+  ],
+  "nets": { "OUT": ["R1.2", "D1.A"] },
+  "power_nets": { "GND": "power:GND" }
+}
+
+Most common mistakes: omitting "version", writing "components" instead of
+"symbols", making "nets" an array instead of a map, and giving x/y instead of
+a "place" anchor.`, err)), nil, nil
 		}
 		project := d.Project
 		if project == "" {
@@ -470,6 +493,6 @@ func RegisterCompileTools(s *mcp.Server, env *Env) {
 	}, WrapTool(env.Log, "compile_schematic", env.handleCompileSchematic))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "design_guide",
-		Description: "Read-only: the human-schematic design guide for .design.json authors — layout conventions (signal flow, power rails, decoupling farms), wire-vs-label criteria, spacing recipes in grid cells, and the iteration protocol. Read it before writing or editing a design source.",
+		Description: "Read-only, and the FIRST thing to call before writing a design: a complete worked example you can copy, the full .design.json syntax (what the fields are called and how nets and placement are expressed), and the human-schematic conventions — signal flow, power rails, decoupling spacing in grid cells, wire-vs-label criteria, and the iteration protocol.",
 	}, WrapTool(env.Log, "design_guide", env.handleDesignGuide))
 }

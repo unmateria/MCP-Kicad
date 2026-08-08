@@ -72,7 +72,7 @@ demo_full_board   demo_voltage_regulator   demo_mcu_i2c   demo_buck_converter
 led_18650         ne5532_buf               ne555_astable
 ```
 
-The format is documented in `docs/compiler/FORMAT.md`.
+The format spec lives in `internal/tools/design_format.md` — embedded in the binary and served by the `design_guide` tool, because a client with no filesystem cannot read the repo (see docs/compiler/FORMAT.md for why it moved).
 
 ## Architecture
 

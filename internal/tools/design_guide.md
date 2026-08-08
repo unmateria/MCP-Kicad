@@ -1,8 +1,9 @@
 # Guía de diseño para autores de `.design.json`
 
 Cómo piensa un ingeniero humano al dibujar un esquemático, traducido a la
-fuente declarativa de este compilador. La spec del formato está en
-`docs/compiler/FORMAT.md`; esta guía es el criterio con el que usarla.
+fuente declarativa de este compilador. El ejemplo y la spec del formato van
+JUSTO ARRIBA, en esta misma respuesta; esta parte es el criterio con el que
+usarlos.
 Fuentes: SparkFun, KiCad KLC, IEEE 315, Altium, Horowitz & Hill, y las
 lecciones de los siete circuitos canónicos del repo.
 
