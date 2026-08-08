@@ -32,8 +32,10 @@ func main() {
 		ConfigPath:      cfg.ConfigPath,
 	}
 
+	// A netlist defect returns BOTH a result and an error: print the report
+	// and paths anyway, since that is what the defect is diagnosed from.
 	res, err := env.CompileDesign(flag.Arg(0), *out)
-	if err != nil {
+	if err != nil && res == nil {
 		fmt.Fprintln(os.Stderr, "compile:", err)
 		os.Exit(1)
 	}
@@ -45,7 +47,8 @@ func main() {
 	// The schematic and its preview are written either way — a netlist defect
 	// is diagnosed by looking at them — but the exit code has to fail so no
 	// script or CI run mistakes a wrong netlist for a good build.
-	if len(res.NetDefects) > 0 {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compile:", err)
 		os.Exit(1)
 	}
 }

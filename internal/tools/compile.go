@@ -125,6 +125,10 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		}
 	}
 
+	if err := checkPinContacts(sch, d); err != nil {
+		return nil, err
+	}
+
 	// Connection table, net names sorted for determinism. Power nets whose
 	// name routeNets already recognises flow through it (per-pin power policy);
 	// the rest of the declared power nets are emitted here from the explicit
@@ -200,13 +204,18 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, conns, "auto", compForNet, &sb)
 	totalWires += wiregenWires
 
+	// PWR_FLAGs BEFORE the gate. They bring a symbol and a stub wire of their
+	// own, and running them afterwards put geometry into the schematic that
+	// nothing ever checked — which is how a surviving cross-net crossing was
+	// found. Anything that adds geometry belongs upstream of the gate.
+	e.ensurePowerFlags(sch)
+
 	gateResult := gate.Enforce(sch)
 	// Weld after the gate: label pairs that survive with a clean corridor
 	// between them become real wires — humans read wires, not tag pairs.
 	// Every candidate is validated against gate.Check, so this can never
 	// reintroduce a violation the gate just removed.
 	weldResult := weld.Weld(sch)
-	e.ensurePowerFlags(sch)
 	fmt.Fprintf(&sb, "\n%s\n", gateResult.String())
 	if weldResult.Welded+weldResult.LabelsRemoved > 0 {
 		fmt.Fprintf(&sb, "%s\n", weldResult.String())
@@ -280,7 +289,15 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		}
 	}
 
-	return &CompileResult{SchematicPath: absOut, PNGPath: pngPath, Report: sb.String(), NetDefects: defects}, nil
+	res := &CompileResult{SchematicPath: absOut, PNGPath: pngPath, Report: sb.String(), NetDefects: defects}
+	if len(defects) > 0 {
+		// The result is returned ALONGSIDE the error: the schematic and its
+		// preview are on disk and the report explains what happened, which is
+		// what diagnosing needs. But a caller that only checks err must never
+		// be handed a schematic whose netlist we already know is wrong.
+		return res, fmt.Errorf("emitted netlist does not match the declared one (%d defect(s); see report)", len(defects))
+	}
+	return res, nil
 }
 
 // stripQuietLabels removes the documentation labels of nets whose source
@@ -397,10 +414,16 @@ func (e *Env) handleCompileSchematic(_ context.Context, _ *mcp.CallToolRequest, 
 		return toolText("error: design_path is required"), nil, nil
 	}
 	out, err := e.CompileDesign(input.DesignPath, input.OutputPath)
-	if err != nil {
+	if err != nil && out == nil {
 		return toolText(fmt.Sprintf("compile error: %v", err)), nil, nil
 	}
 	report := out.Report + "\nschematic: " + out.SchematicPath
+	if err != nil {
+		// Netlist defects come with a usable result: show the report and the
+		// preview, which is what the fix is worked out from, but lead with
+		// the failure so it cannot be mistaken for a good build.
+		report = fmt.Sprintf("COMPILE FAILED: %v\n\n%s", err, report)
+	}
 	return e.withInlinePNG(toolText(report), out.SchematicPath), nil, nil
 }
 

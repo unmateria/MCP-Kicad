@@ -152,3 +152,79 @@ func majorityNet(where []int) int {
 	}
 	return best
 }
+
+// checkPinContacts rejects a placement where two symbols' pins land on the
+// same coordinate without the source putting them on one net.
+//
+// Touching pin tips ARE a connection in KiCad, wire or no wire, so this is a
+// short built into the geometry itself. The existing overlap check cannot see
+// it: it compares symbol BODIES, and pin tips stick out beyond the body, so
+// two parts can touch pins while their bodies stay comfortably apart.
+//
+// Coincident pins that the source does declare on one net are left alone —
+// that is the legitimate "butt the capacitor straight onto the IC pin" the
+// format allows, and it needs no wire.
+//
+// Reported as a compile error rather than a netlist defect because the fix is
+// in the source's cell counts, and because at this point the wiring has not
+// been drawn yet: everything downstream would be reasoning about a netlist
+// the author never asked for.
+func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
+	type pinAt struct {
+		ref, number string
+	}
+	at := make(map[[2]float64][]pinAt)
+	var order [][2]float64
+	for _, sym := range sexp.ReadSymbols(sch) {
+		for _, p := range sym.Pins {
+			key := [2]float64{sexp.Round2(p.X), sexp.Round2(p.Y)}
+			if len(at[key]) == 0 {
+				order = append(order, key)
+			}
+			at[key] = append(at[key], pinAt{sym.Reference, p.Number})
+		}
+	}
+
+	// sameNet reports whether the source declares both pins on one net. The
+	// map iteration is safe here: the answer is a yes/no that does not depend
+	// on which net is examined first.
+	sameNet := func(a, b pinAt) bool {
+		for _, pins := range d.Nets {
+			foundA, foundB := false, false
+			for _, decl := range pins {
+				if matchesDecl(decl, a.ref, a.number) {
+					foundA = true
+				}
+				if matchesDecl(decl, b.ref, b.number) {
+					foundB = true
+				}
+			}
+			if foundA && foundB {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, key := range order { // iterate the slice, not the map: determinism
+		pins := at[key]
+		for i := 0; i < len(pins); i++ {
+			for j := i + 1; j < len(pins); j++ {
+				if pins[i].ref == pins[j].ref || sameNet(pins[i], pins[j]) {
+					continue
+				}
+				return fmt.Errorf(
+					"%s.%s and %s.%s both sit at (%.2f, %.2f): touching pins are one net in KiCad, "+
+						"but the source declares them apart — change the cell count that places them",
+					pins[i].ref, pins[i].number, pins[j].ref, pins[j].number, key[0], key[1])
+			}
+		}
+	}
+	return nil
+}
+
+// matchesDecl reports whether a declared "REF.pin" / "REF.unit.pin" names the
+// given placed pin.
+func matchesDecl(decl, ref, number string) bool {
+	return sexp.PinRef{Reference: ref, PinNumber: number}.Matches(decl)
+}

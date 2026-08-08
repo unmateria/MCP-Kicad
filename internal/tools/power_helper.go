@@ -46,7 +46,23 @@ func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup
 		return fmt.Sprintf("error: embed %s: %v", libID, err), false, false
 	}
 	libDefAngle := sexp.PowerSymbolPinAngle(libSymbolDef(p.sch, libID))
-	dec := power.Compute(libID, target, libDefAngle, "")
+
+	// A power symbol dropped onto another part's pin joins that net to the
+	// rail — a short with no wire to show for it. Let the placer step further
+	// out instead. The target's own pin is not an obstacle: the stub runs
+	// from it by definition.
+	occupied := func(x, y float64) bool {
+		for _, s := range sexp.ReadSymbols(p.sch) {
+			for _, pin := range s.Pins {
+				if approxEq(pin.X, x) && approxEq(pin.Y, y) &&
+					!(approxEq(pin.X, target.X) && approxEq(pin.Y, target.Y)) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	dec := power.ComputeClear(libID, target, libDefAngle, "", occupied)
 
 	if p.reg.Has(libID, dec.X, dec.Y) {
 		return fmt.Sprintf("dedup: %s already at (%.2f,%.2f)", libID, dec.X, dec.Y), true, true

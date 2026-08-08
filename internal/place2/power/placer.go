@@ -65,10 +65,40 @@ func AnchorOffset(partName string, dir float64) (dx, dy float64) {
 // Compute builds a Decision for a target pin. The required rotation makes the
 // power symbol's pin face back toward the target.
 func Compute(libID string, target sexp.PinInfo, libDefPinAngle float64, ref string) Decision {
+	return ComputeClear(libID, target, libDefPinAngle, ref, nil)
+}
+
+// maxStubSteps bounds how far a power symbol may back away from its pin
+// looking for free space. Beyond three grid steps the stub reads as a wire in
+// its own right rather than as the symbol's own tail.
+const maxStubSteps = 3
+
+// ComputeClear is Compute with somewhere to go when the spot is taken. The
+// anchor is one grid step along the pin's own direction, and nothing used to
+// check whether another part's pin was already sitting there — which lands a
+// GND symbol on a foreign pin and shorts that net to ground, silently and
+// with no wire drawn. Found by the generated-design properties, not by any
+// hand-written circuit.
+//
+// occupied reports whether a coordinate already holds a pin (pass nil to skip
+// the check). When every candidate is taken the nearest one is returned
+// anyway: VerifyNetlist will refuse the result, which beats guessing.
+func ComputeClear(libID string, target sexp.PinInfo, libDefPinAngle float64, ref string, occupied func(x, y float64) bool) Decision {
 	partName := strings.TrimPrefix(libID, "power:")
 	dx, dy := AnchorOffset(partName, target.Direction)
+
 	bx := sexp.SnapGrid(target.X + dx)
 	by := sexp.SnapGrid(target.Y + dy)
+	if occupied != nil {
+		for step := 1; step <= maxStubSteps; step++ {
+			cx := sexp.SnapGrid(target.X + dx*float64(step))
+			cy := sexp.SnapGrid(target.Y + dy*float64(step))
+			if !occupied(cx, cy) {
+				bx, by = cx, cy
+				break
+			}
+		}
+	}
 	// rot = (target outgoing direction) − (power pin local angle), mod 360
 	r := math.Mod(target.Direction-libDefPinAngle, 360)
 	if r < 0 {
