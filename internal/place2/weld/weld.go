@@ -36,9 +36,28 @@ const eps = 0.01
 // Beauty filters. A candidate that fails any of them is rejected before the
 // (much more expensive) gate validation even runs.
 const (
-	maxRouteLen    = 50.8 // mm — 20 grid cells; longer than this a label reads better
 	maxDetourRatio = 1.5  // route length / manhattan distance
 	minSegLen      = 2.54 // mm — no stubby segments, except a lone straight run
+)
+
+// How far a weld may reach. What makes a long wire hard to follow is not its
+// length in millimetres but its length RELATIVE to the drawing: 65 mm across
+// a full A4 is an ordinary inter-block run, while the same wire on a
+// thumbnail-sized circuit dominates it. A fixed 50.8 mm ceiling therefore
+// refused perfectly clean L-shaped runs between blocks — the pull-up to its
+// MCU pin — and left a pair of tags where a person would have drawn a line.
+//
+// The reach is a fraction of the content's diagonal, floored so that small
+// schematics still get the old allowance. Every other guarantee is unchanged:
+// the route must be straight/L/Z, near-direct (maxDetourRatio), clear of
+// bodies, and accepted by the gate.
+// Half the diagonal is the line: beyond that a wire dominates the drawing and
+// a tag pair genuinely reads better; below it, both ends are still in one
+// eyeful and a person would draw the wire — which is what a review of the
+// I2C pull-ups said about a 65 mm run this pass was refusing.
+const (
+	weldReachFraction = 0.5
+	minWeldReach      = 50.8 // mm — 20 grid cells
 )
 
 // Route classes, in preference order.
@@ -71,8 +90,9 @@ func Weld(sch *sexp.Schematic) Result {
 	if sch == nil {
 		return res
 	}
+	maxLen := contentReach(sch)
 	for _, name := range weldableNetNames(sch) {
-		welded, removed, notes := weldNet(sch, name)
+		welded, removed, notes := weldNet(sch, name, maxLen)
 		res.Welded += welded
 		res.LabelsRemoved += removed
 		res.Notes = append(res.Notes, notes...)
@@ -133,13 +153,13 @@ func isPowerLibID(libID string) bool {
 
 // weldNet welds one net until it is a single island or no candidate survives,
 // then prunes its now-redundant labels.
-func weldNet(sch *sexp.Schematic, netName string) (welded, removed int, notes []string) {
+func weldNet(sch *sexp.Schematic, netName string, maxLen float64) (welded, removed int, notes []string) {
 	comps := componentsOf(sch, netName)
 	if len(comps) < 2 {
 		return 0, 0, nil // already one island — nothing this pass owns
 	}
 	for len(comps) > 1 {
-		note, ok := weldOnce(sch, netName, comps)
+		note, ok := weldOnce(sch, netName, comps, maxLen)
 		if !ok {
 			break
 		}
@@ -158,7 +178,7 @@ func weldNet(sch *sexp.Schematic, netName string) (welded, removed int, notes []
 
 // weldOnce tries every component pair (closest first) and commits the first
 // candidate route the gate accepts.
-func weldOnce(sch *sexp.Schematic, netName string, comps []component) (string, bool) {
+func weldOnce(sch *sexp.Schematic, netName string, comps []component, maxLen float64) (string, bool) {
 	baseline := len(gate.Check(sch))
 	bodies := bodyBoxes(sch)
 	segs := wireSegments(sch)
@@ -168,7 +188,7 @@ func weldOnce(sch *sexp.Schematic, netName string, comps []component) (string, b
 	for _, cp := range orderedComponentPairs(comps) {
 		for _, pp := range orderedPointPairs(comps[cp.i], comps[cp.j]) {
 			for _, r := range routes(pp.a, pp.b) {
-				if !acceptable(r) || !clearOfBodies(r, bodies) {
+				if !acceptable(r, maxLen) || !clearOfBodies(r, bodies) {
 					continue
 				}
 				if !commit(sch, r, netName, netOf, segs, junctions, baseline) {
@@ -425,12 +445,12 @@ func mkRoute(class int, pts ...pt) route {
 // acceptable applies the beauty filters: bounded length, bounded detour, no
 // stubby segments (a lone straight run is exempt), every vertex on the KiCad
 // connection grid and every segment axis-aligned.
-func acceptable(r route) bool {
+func acceptable(r route, maxLen float64) bool {
 	if len(r.pts) < 2 {
 		return false
 	}
 	man := manhattan(r.pts[0], r.pts[len(r.pts)-1])
-	if man <= eps || r.length > maxRouteLen+eps || r.length > man*maxDetourRatio+eps {
+	if man <= eps || r.length > maxLen+eps || r.length > man*maxDetourRatio+eps {
 		return false
 	}
 	single := len(r.pts) == 2
@@ -665,4 +685,30 @@ func (u *unionFind) union(a, b pt) {
 	if ra != rb {
 		u.parent[rb] = ra
 	}
+}
+
+// contentReach is how far a weld may run on this particular sheet: a fraction
+// of the drawing's own diagonal, never less than minWeldReach. Scaling with
+// the content is what makes the rule mean "a wire must not dominate the
+// drawing" rather than "a wire must be under 50 mm".
+func contentReach(sch *sexp.Schematic) float64 {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	note := func(x, y float64) {
+		minX, minY = math.Min(minX, x), math.Min(minY, y)
+		maxX, maxY = math.Max(maxX, x), math.Max(maxY, y)
+	}
+	for _, s := range sexp.ReadSymbols(sch) {
+		for _, p := range s.Pins {
+			note(p.X, p.Y)
+		}
+	}
+	for _, seg := range wireSegments(sch) {
+		note(seg.ax, seg.ay)
+		note(seg.bx, seg.by)
+	}
+	if math.IsInf(minX, 1) {
+		return minWeldReach
+	}
+	return math.Max(minWeldReach, math.Hypot(maxX-minX, maxY-minY)*weldReachFraction)
 }

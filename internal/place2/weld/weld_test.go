@@ -336,7 +336,7 @@ func TestPowerRailIsNeverWelded(t *testing.T) {
 		t.Fatalf("fixture GND has %d islands, want 2", len(comps))
 	}
 	r := routes(pt{50.8, 43.18}, pt{50.8, 58.42})
-	if len(r) != 1 || !acceptable(r[0]) || !clearOfBodies(r[0], bodyBoxes(sch)) {
+	if len(r) != 1 || !acceptable(r[0], minWeldReach) || !clearOfBodies(r[0], bodyBoxes(sch)) {
 		t.Fatalf("fixture corridor is not clean, so the test would prove nothing")
 	}
 
@@ -389,19 +389,19 @@ func TestWeldIsDeterministic(t *testing.T) {
 // The beauty filters reject candidates before the gate is even consulted.
 func TestBeautyFilters(t *testing.T) {
 	long := routes(pt{0, 0}, pt{63.5, 0})
-	if len(long) != 1 || acceptable(long[0]) {
+	if len(long) != 1 || acceptable(long[0], minWeldReach) {
 		t.Errorf("a %0.2f mm straight run must be rejected as too long", 63.5)
 	}
 	// A 1.27 mm jog can only be drawn with a stubby segment, so every
 	// multi-segment candidate must be rejected.
 	for _, r := range routes(pt{0, 0}, pt{25.4, 1.27}) {
-		if acceptable(r) {
+		if acceptable(r, minWeldReach) {
 			t.Errorf("accepted a route with a 1.27 mm jog: %v", r.pts)
 		}
 	}
 	found := false
 	for _, r := range routes(pt{0, 0}, pt{25.4, 5.08}) {
-		if !acceptable(r) {
+		if !acceptable(r, minWeldReach) {
 			continue
 		}
 		found = true
@@ -415,7 +415,7 @@ func TestBeautyFilters(t *testing.T) {
 		t.Error("expected at least one acceptable route for a 25.4 x 5.08 mm offset")
 	}
 	single := routes(pt{0, 0}, pt{1.27, 0})
-	if len(single) != 1 || !acceptable(single[0]) {
+	if len(single) != 1 || !acceptable(single[0], minWeldReach) {
 		t.Error("a lone short straight run must be exempt from the min-segment filter")
 	}
 }
