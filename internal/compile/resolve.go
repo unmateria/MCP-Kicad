@@ -215,16 +215,28 @@ func resolveExplicitBlock(b *Block, sg SymbolGeom) (*localBlock, error) {
 // which is exactly a counter-clockwise visual rotation in a Y-down frame, the
 // way KiCad displays symbol rotation.
 //
-// Mirror is applied first, in the rotation-0 frame, and flips the X axis —
-// KiCad's `(mirror y)`, the horizontal flip. sexp/pins.go does not handle
-// mirror yet; when it grows support it must match this order (mirror, then
-// rotate) and this axis.
+// Mirror is KiCad's `(mirror y)` and is applied AFTER the rotation, flipping
+// the X axis of the FINISHED placement — not the symbol's own axis before it
+// turns. Measured with kicad-cli sch export netlist on a Device:R, whose
+// library pins sit on the Y axis:
+//
+//	rot 0  + (mirror y) → pins unchanged (they lie along Y)
+//	rot 90 + (mirror y) → pins 1 and 2 swap sides (they now lie along X)
+//
+// Mirroring before the rotation would predict the opposite in both rows. The
+// two orders agree at 0°/180° and disagree at 90°/270°, which is exactly the
+// kind of difference that only shows up once someone rotates a mirrored part.
+//
+// internal/sexp/pins.go does not read (mirror …) yet, so nothing round-trips
+// a mirrored symbol today; when it grows support it must match this order and
+// this axis.
 func transformOffset(dx, dy float64, rot int, mirror bool) (float64, float64) {
-	if mirror {
-		dx = -dx
-	}
 	c, s := rotCosSin(rot)
-	return dx*c + dy*s, -dx*s + dy*c
+	x, y := dx*c+dy*s, -dx*s+dy*c
+	if mirror {
+		x = -x
+	}
+	return x, y
 }
 
 // rotCosSin returns cos/sin of a symbol rotation, exact for the four legal

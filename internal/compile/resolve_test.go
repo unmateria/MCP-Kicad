@@ -344,7 +344,14 @@ func TestResolveRotationTransform(t *testing.T) {
 		{"ic pin rot180", -2.54, 2.54, 180, false, 2.54, -2.54},
 		{"ic pin rot270", -2.54, 2.54, 270, false, -2.54, -2.54},
 		{"ic pin mirror", -2.54, 2.54, 0, true, 2.54, 2.54},
-		{"ic pin mirror rot90", -2.54, 2.54, 90, true, 2.54, -2.54},
+		{"ic pin mirror rot90", -2.54, 2.54, 90, true, -2.54, 2.54},
+
+		// The two rows KiCad itself was measured on (Device:R, library pins on
+		// the Y axis): mirroring leaves a rot-0 resistor alone and swaps the
+		// ends of a rot-90 one. Mirroring before rotating predicts the reverse.
+		{"r pin1 mirror rot0", 0, -3.81, 0, true, 0, -3.81},
+		{"r pin1 mirror rot90", 0, -3.81, 90, true, 3.81, 0},
+		{"r pin2 mirror rot90", 0, 3.81, 90, true, -3.81, 0},
 	}
 	for _, c := range cases {
 		x, y := transformOffset(c.dx, c.dy, c.rot, c.mirror)
