@@ -215,6 +215,10 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	}
 	fmt.Fprintf(&sb, "routing: %d wire segments, %d labels, %d errors\n", totalWires, totalLabels, totalErrors)
 
+	if stripped := stripQuietLabels(sch, d); len(stripped) > 0 {
+		fmt.Fprintf(&sb, "quiet nets: label removed for %s\n", strings.Join(stripped, ", "))
+	}
+
 	autoNC := e.applyNoConnects(sch, d, &sb)
 	if len(autoNC) > 0 {
 		fmt.Fprintf(&sb, "auto no_connect (%d pins): %s\n", len(autoNC), strings.Join(autoNC, " "))
@@ -255,6 +259,70 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	}
 
 	return &CompileResult{SchematicPath: absOut, PNGPath: pngPath, Report: sb.String()}, nil
+}
+
+// stripQuietLabels removes the documentation labels of nets whose source
+// name starts with "_": connectivity-only junction names (the node between
+// a resistor and its LED) that a hand-drawn schematic never prints. A label
+// is only removed when the net stays one electrical piece without it, so a
+// gate-demoted quiet net keeps its (required) labels.
+func stripQuietLabels(sch *sexp.Schematic, d *compile.Design) []string {
+	names := make([]string, 0, len(d.Nets))
+	for name := range d.Nets {
+		if strings.HasPrefix(name, "_") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var stripped []string
+	root := sch.Root()
+	for _, name := range names {
+		var kept, removed []*sexp.Node
+		for _, c := range root.Children {
+			if c.Head() == "label" && sexp.StringValue(c, 1) == name {
+				removed = append(removed, c)
+			} else {
+				kept = append(kept, c)
+			}
+		}
+		if len(removed) == 0 {
+			continue
+		}
+		root.Children = kept
+		if netIntact(sch, d.Nets[name]) {
+			stripped = append(stripped, name)
+			continue
+		}
+		root.Children = append(root.Children, removed...)
+	}
+	return stripped
+}
+
+// netIntact reports whether every listed "REF.pin" still shares one traced
+// net — the test that a quiet net survives losing its labels.
+func netIntact(sch *sexp.Schematic, pins []string) bool {
+	if len(pins) < 2 {
+		return true
+	}
+	for _, net := range sexp.TraceNets(sch) {
+		found := 0
+		for _, want := range pins {
+			ref, pin, ok := strings.Cut(want, ".")
+			if !ok {
+				return false
+			}
+			for _, p := range net.Pins {
+				if p.Reference == ref && (p.PinNumber == pin || p.PinName == pin) {
+					found++
+					break
+				}
+			}
+		}
+		if found == len(pins) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyNoConnects places explicit no_connect markers plus, for references

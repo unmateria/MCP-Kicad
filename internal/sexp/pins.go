@@ -55,6 +55,15 @@ type SchematicSymbol struct {
 	Rotation  float64
 	Unit      int // unit number for multi-unit ICs (1-based)
 	Pins      []PinInfo
+
+	// Graphic* is the bounding box of the symbol's DRAWN primitives
+	// (rectangle, polyline, circle, arc) in absolute schematic coordinates,
+	// for the sub-units this instance renders. It is what pin positions alone
+	// cannot express: an op-amp triangle, a MOSFET body or a crystal plate all
+	// stick out beyond the pin span. HasGraphic is false when the lib
+	// definition is not embedded or the rendered units draw nothing.
+	GraphicX1, GraphicY1, GraphicX2, GraphicY2 float64
+	HasGraphic                                 bool
 }
 
 // ReadSymbols returns all placed symbols in the schematic with their pins
@@ -193,6 +202,11 @@ func resolveSymbol(inst, libSymbols *Node) *SchematicSymbol {
 	for _, def := range libSymbols.Children {
 		if def.Head() == "symbol" && StringValue(def, 1) == libID {
 			ss.Pins = extractPins(def, cx, cy, rot, unit)
+			if gx1, gy1, gx2, gy2, ok := graphicBBox(def, cx, cy, rot, unit); ok {
+				ss.GraphicX1, ss.GraphicY1 = gx1, gy1
+				ss.GraphicX2, ss.GraphicY2 = gx2, gy2
+				ss.HasGraphic = true
+			}
 			return ss
 		}
 	}

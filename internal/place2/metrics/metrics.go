@@ -261,11 +261,61 @@ func SegmentsCrossOrthogonal(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
 	return vx > hx1 && vx < hx2 && hy > vy1 && hy < vy2
 }
 
-// BodyBBox returns the symbol body bbox (inset from pin tips) so wires that
-// terminate AT a pin don't count as "through symbol". Exported for reuse by
-// internal/place2/gate, which needs the identical inset logic to avoid
-// false-flagging legitimate pin connections as WIRE_THRU_SYMBOL violations.
+// BodyBBox returns the symbol body bbox: the pin-derived box (inset from pin
+// tips so wires that terminate AT a pin don't count as "through symbol")
+// UNIONED with the symbol's real drawn extents when the lib definition is
+// embedded. Exported for reuse by internal/place2/gate, which needs the
+// identical logic to avoid false-flagging legitimate pin connections as
+// WIRE_THRU_SYMBOL violations.
+//
+// The pin-derived box alone is blind to everything a symbol draws outside its
+// pin span — an op-amp triangle reaches 5.08 mm above and below a pin row that
+// spans only 2.54 mm — so wires that were geometrically "legal" used to cut
+// straight across the drawing. The result is never smaller than the pin-derived
+// box, so the new model can only reject wires the old one wrongly accepted.
 func BodyBBox(sym sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
+	x1, y1, x2, y2 = pinBodyBBox(sym)
+	if !sym.HasGraphic {
+		return
+	}
+	gx1, gy1, gx2, gy2 := clampOffPins(
+		sym.GraphicX1, sym.GraphicY1, sym.GraphicX2, sym.GraphicY2, sym.Pins)
+	return math.Min(x1, gx1), math.Min(y1, gy1), math.Max(x2, gx2), math.Max(y2, gy2)
+}
+
+// clampOffPins pulls the graphic box back off any pin tip that fell strictly
+// inside it. Some symbols draw decoration past their own pin tips — the light
+// arrows of Device:LED reach 0.76 mm beyond the cathode — and a pin swallowed
+// by the body makes every wire attached to it read as "through symbol". The
+// decoration is given up rather than break that invariant; the edge with the
+// smallest penetration is the one that yields.
+//
+// This runs on the graphic box alone, before it is unioned with the pin-derived
+// box, so clamping can never shrink a body below the legacy model.
+func clampOffPins(x1, y1, x2, y2 float64, pins []sexp.PinInfo) (float64, float64, float64, float64) {
+	for _, p := range pins {
+		if p.X <= x1 || p.X >= x2 || p.Y <= y1 || p.Y >= y2 {
+			continue
+		}
+		left, right := p.X-x1, x2-p.X
+		top, bottom := p.Y-y1, y2-p.Y
+		switch min := math.Min(math.Min(left, right), math.Min(top, bottom)); min {
+		case left:
+			x1 = p.X
+		case right:
+			x2 = p.X
+		case top:
+			y1 = p.Y
+		default:
+			y2 = p.Y
+		}
+	}
+	return x1, y1, x2, y2
+}
+
+// pinBodyBBox is the legacy body model: the pin-tip span inset by one standard
+// pin length on each side.
+func pinBodyBBox(sym sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
 	const pinLen = 2.54
 	const defaultHalf = 5.08
 	if len(sym.Pins) == 0 {

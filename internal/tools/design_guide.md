@@ -48,9 +48,19 @@ cable cuando existe corredor limpio.
 9. **Alinear pines que se conectan**: dos pines a la misma altura (misma Y)
    producen el cable recto perfecto. La forma más barata de lograrlo es
    anclar uno al otro con `dir` + `cells`.
+9b. **Respeta la dirección de salida del pin**: un pin que apunta hacia
+   arriba (el + de una batería, un VCC) quiere que lo siguiente esté
+   ARRIBA. Anclar el siguiente componente a su misma altura produce una
+   joroba (sube-cruza-baja); ancla en la dirección del pin (1-2 celdas) y
+   el cable queda un palito recto. Recoloca el componente, no dobles el
+   cable.
 10. **Etiqueta para lo lejano**, siempre con nombre semántico (`SDA`,
     `RESET_N`, `VOUT`) — jamás rellenos tipo `NET1`. Mayúsculas
     consistentes; activo-bajo con sufijo `_N`.
+10b. **Los nudos internos no llevan tag**: el punto entre una resistencia y
+    su LED no se etiqueta en un esquema a mano. Nómbralos con prefijo `_`
+    (`_ANODE`) — conectan igual pero no imprimen etiqueta si el cable ya
+    une todo.
 11. **Los rails no se cablean**: cada pin de un power net recibe su símbolo
     (política per-pin). GND repetido muchas veces es lo profesional, no un
     defecto.

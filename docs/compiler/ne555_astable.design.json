@@ -35,7 +35,7 @@
     "THR":   ["U1.6", "U1.2", "R2.2", "C1.1"],
     "CTL":   ["U1.5", "C2.1"],
     "OUT":   ["U1.3", "R3.1"],
-    "ANODE": ["R3.2", "D1.A"]
+    "_ANODE": ["R3.2", "D1.A"]
   },
 
   "power_nets": { "VCC": "power:VCC", "GND": "power:GND" }

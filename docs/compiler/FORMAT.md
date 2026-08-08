@@ -15,7 +15,7 @@ métricas y el informe de decisiones del compilador.
 | `sheet` | `"A4"`, `"A3"` o `"auto"` (elige la menor hoja donde cabe el contenido con márgenes de 12.7 mm). |
 | `blocks` | Bloques funcionales (ver abajo). Unidad de pensamiento = bloque de datasheet. |
 | `arrange` | Filas de bloques, arriba→abajo, cada fila izquierda→derecha. |
-| `nets` | Netlist global: nombre → lista de pines `REF.pin` (número o nombre). |
+| `nets` | Netlist global: nombre → lista de pines `REF.pin` (número o nombre). Un nombre que empieza por `_` es un net "silencioso": solo conectividad, sin etiqueta impresa cuando el cable ya lo une todo (nudos internos tipo R→LED). Reserva los nombres visibles para señales con significado. |
 | `power_nets` | Nets que son rails: nombre → `lib_id` del símbolo power. Nunca se rutean: un símbolo power por pin (política per-pin existente). |
 | `no_connect` | Lista de pines `REF.pin`, o el literal `"unused"` por referencia: todo pin no usado en `nets` ni plantillas recibe `no_connect`. El informe de compilación enumera cuáles fueron — revisar siempre esa lista. |
 
