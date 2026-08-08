@@ -3,6 +3,7 @@ package textplace
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"mcp-kicad/internal/sexp"
 )
@@ -16,7 +17,7 @@ type Collision struct {
 }
 
 func (c Collision) String() string {
-	return fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, c.With, c.Area)
+	return fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, strings.Replace(c.With, "wire:", "wire ", 1), c.Area)
 }
 
 // Collisions reports the text overlaps a finished schematic still carries.
@@ -80,6 +81,12 @@ func Collisions(sch *sexp.Schematic) []Collision {
 				continue
 			}
 			if anchor != nil && o.contains(anchor[0], anchor[1]) {
+				continue
+			}
+			// A net label lying along the wire it names is the convention, not
+			// a collision — KiCad draws them that way. Only a stranger's wire
+			// under a label misleads the reader.
+			if anchor != nil && names[j] == "wire:"+text {
 				continue
 			}
 			if area := b.overlap(o); area > eps {

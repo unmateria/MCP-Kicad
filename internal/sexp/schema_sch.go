@@ -1397,3 +1397,19 @@ func SetSymbolMirror(inst *Node, axis string) {
 		}
 	}
 }
+
+// RemoveLabelsNamed removes every (label "name") node and returns them, so a
+// caller can put them back if dropping them breaks connectivity.
+func (s *Schematic) RemoveLabelsNamed(name string) []*Node {
+	var removed []*Node
+	kept := s.root.Children[:0]
+	for _, c := range s.root.Children {
+		if c.Head() == "label" && StringValue(c, 1) == name {
+			removed = append(removed, c)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	s.root.Children = kept
+	return removed
+}

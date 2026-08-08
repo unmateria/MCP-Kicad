@@ -238,6 +238,17 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	if moved, flipped := textplace.Autoplace(sch); moved+flipped > 0 {
 		fmt.Fprintf(&sb, "textplace: %d fields repositioned, %d labels flipped\n", moved, flipped)
 	}
+
+	if dropped := dropCollidingDocLabels(sch, d); len(dropped) > 0 {
+		fmt.Fprintf(&sb, "labels: dropped the documentation label of %s — the wire already carries the connection and the text was sitting on a neighbouring net.\n"+
+			"        Those nets now take KiCad's automatic name (Net-(U3-Qd) and such) instead of yours. If you need the name kept, give the parts more room so the label fits.\n",
+			strings.Join(dropped, ", "))
+		textplace.Autoplace(sch) // re-place what is left, now that there is room
+	}
+
+	// Counted last, after the labels that were in the way are gone and the
+	// rest have been re-placed: anything else reports a number the finished
+	// sheet does not have.
 	if cols := textplace.Collisions(sch); len(cols) > 0 {
 		total := 0.0
 		for _, c := range cols {
@@ -519,4 +530,53 @@ func RegisterCompileTools(s *mcp.Server, env *Env) {
 		Name:        "design_guide",
 		Description: "Read-only, and the FIRST thing to call before writing a design: a complete worked example you can copy, the full .design.json syntax (what the fields are called and how nets and placement are expressed), and the human-schematic conventions — signal flow, power rails, decoupling spacing in grid cells, wire-vs-label criteria, and the iteration protocol.",
 	}, WrapTool(env.Log, "design_guide", env.handleDesignGuide))
+}
+
+// dropCollidingDocLabels removes net labels that overlap something and whose
+// net stays in one piece without them.
+//
+// A fully wired net keeps one label as documentation of its name. That is
+// right on an open sheet and wrong in a dense bus: with seven segment lines
+// 2.54 mm apart, a six-character label written along one of them lies across
+// its neighbours' wires, so the drawing says SEG_G on the wire carrying SEG_C.
+// A person labels the long runs and lets the short hop from decoder to
+// resistor speak for itself.
+//
+// Only labels that actually collide are dropped, and only when the wiring
+// alone still holds the net together — connectivity is never traded for
+// tidiness.
+func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
+	cols := textplace.Collisions(sch)
+	if len(cols) == 0 {
+		return nil
+	}
+	guilty := make(map[string]bool, len(cols))
+	for _, c := range cols {
+		guilty[c.Text] = true
+	}
+
+	var dropped []string
+	names := make([]string, 0, len(d.Nets))
+	for name := range d.Nets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		if !guilty[name] {
+			continue
+		}
+		removed := sch.RemoveLabelsNamed(name)
+		if len(removed) == 0 {
+			continue
+		}
+		if netIntact(sch, d.Nets[name]) {
+			dropped = append(dropped, name)
+			continue
+		}
+		for _, n := range removed { // put them back: the net needs them
+			sch.AddLabel(n)
+		}
+	}
+	return dropped
 }

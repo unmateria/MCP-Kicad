@@ -268,15 +268,23 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []stri
 				"pin number "+s.Reference+"."+p.Number)
 		}
 	}
+	// Wires carry their net name so a label can tell its OWN wire from a
+	// stranger's: sitting on the wire it names is where KiCad puts a label,
+	// while sitting on someone else's is a genuine misread.
+	netOf := sexp.TracePointNets(sch)
 	for _, w := range sch.Wires() {
 		ax, ay, bx, by, ok := metrics.WireCoords(w)
 		if !ok {
 			continue
 		}
+		name := "wire"
+		if n := netOf[[2]float64{sexp.Round2(ax), sexp.Round2(ay)}]; n != "" {
+			name = "wire:" + n
+		}
 		add(box{
 			math.Min(ax, bx) - wireThick/2, math.Min(ay, by) - wireThick/2,
 			math.Max(ax, bx) + wireThick/2, math.Max(ay, by) + wireThick/2,
-		}, "wire")
+		}, name)
 	}
 	var labels []labelRef
 	for _, c := range sch.Root().Children {

@@ -29,8 +29,8 @@ func main() {
 		}
 		fmt.Printf("\n%s: %d collision(s), %.1f mm2 total\n", path, len(cols), total)
 		for i, c := range cols {
-			if i >= 6 {
-				fmt.Printf("  ... %d more\n", len(cols)-6)
+			if i >= 40 {
+				fmt.Printf("  ... %d more\n", len(cols)-40)
 				break
 			}
 			fmt.Println("  ", c)
