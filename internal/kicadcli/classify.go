@@ -110,12 +110,12 @@ func classify(v Violation) ClassifiedViolation {
 	if containsAny(t, "pin_not_connected", "wire_dangling", "no_connect") ||
 		containsAny(d, "pin unconnected", "wire not connected", "not connected") {
 		return ClassifiedViolation{v, CategoryFixable,
-			"Use connect_pins from=REF.pin to=REF.pin to wire this pin"}
+			"List this pin in the source's `nets`, or in `no_connect` if it is meant to be unused, then recompile"}
 	}
 	if containsAny(t, "missing_power_flag", "power_pin_not_driven") ||
 		containsAny(d, "power pin", "power flag") {
 		return ClassifiedViolation{v, CategoryFixable,
-			"Add a PWR_FLAG symbol (Device:PWR_FLAG) to a VCC/GND net"}
+			"Declare the rail in the source's `power_nets` — compile_schematic adds the PWR_FLAG itself"}
 	}
 	if containsAny(t, "duplicate_reference", "no_reference", "empty_reference") ||
 		containsAny(d, "duplicate reference", "missing reference", "no reference") {

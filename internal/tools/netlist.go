@@ -11,6 +11,8 @@ import (
 
 	"mcp-kicad/internal/place2/cluster"
 	"mcp-kicad/internal/place2/gate"
+	"mcp-kicad/internal/place2/metrics"
+	"mcp-kicad/internal/place2/textplace"
 	"mcp-kicad/internal/place2/wiregen"
 	"mcp-kicad/internal/router"
 	"mcp-kicad/internal/sexp"
@@ -90,13 +92,34 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 	// body, or overlaps another net's wire collinearly. Demoted nets keep
 	// their exact connectivity via net labels instead of wires, which have
 	// no geometry and therefore cannot violate anything.
-	gateResult := gate.Enforce(sch)
-
 	// ERC discipline: give every undriven power-input net a PWR_FLAG so KiCad
-	// does not report "Input Power pin not driven" errors (Goal A). Emitted
-	// after the gate so the flag stubs are never swept up by a demotion.
+	// does not report "Input Power pin not driven" errors.
+	//
+	// BEFORE the gate. This used to run after it, reasoning that a demotion
+	// might sweep up the flag's stub — but a flag brings a symbol and a wire,
+	// and running it afterwards puts geometry into the schematic that nothing
+	// ever checks. That is how a surviving cross-net crossing was found in the
+	// compiler's copy of this same sequence. If the gate does demote the flag's
+	// net, connectivity survives as labels, which is the correct trade.
 	e.ensurePowerFlags(sch)
+
+	gateResult := gate.Enforce(sch)
 	fmt.Fprintf(&sb, "\n%s\n", gateResult.String())
+
+	// Text placement. Without this the low-level path emits every reference and
+	// value at KiCad's default anchor, which lands on top of its own symbol
+	// body: a hand-built 15-symbol schematic measured 341 text collisions
+	// (1386 mm²) before this call existed.
+	if moved, flipped := textplace.Autoplace(sch); moved+flipped > 0 {
+		fmt.Fprintf(&sb, "textplace: %d fields repositioned, %d labels flipped\n", moved, flipped)
+	}
+	if cols := textplace.Collisions(sch); len(cols) > 0 {
+		total := 0.0
+		for _, c := range cols {
+			total += c.Area
+		}
+		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2 — worst %s\n", len(cols), total, cols[0])
+	}
 
 	if err := os.WriteFile(input.SchematicPath, []byte(sch.Serialize()), 0o644); err != nil {
 		return toolText(fmt.Sprintf("error writing schematic: %v", err)), nil, nil
@@ -298,7 +321,7 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		// Pin tips belonging to other nets are off limits for this net's
 		// wires: touching one connects to it, which is a short the geometric
 		// gate cannot see afterwards (the two nets have become one).
-		foreignPins := foreignPinTips(sch, positions)
+		foreignPins := foreignPoints(sch, positions)
 
 		// Power-rail policy: if the net name maps to a known power lib_id
 		// (GND, VCC, +5V, ±12V…) AND strategy isn't forcing wires, place a
@@ -760,23 +783,79 @@ func RegisterNetlistTools(s *mcp.Server, env *Env) {
 	}, WrapTool(env.Log, "connect_netlist", env.handleConnectNetlist))
 }
 
-// foreignPinTips lists the pin tips that do NOT belong to the net being
-// routed. A wire that touches one of them joins that pin's net, so they are
-// hard obstacles for this net's routing — see router.RouteAvoiding.
-func foreignPinTips(sch *sexp.Schematic, own []pinPos) [][2]float64 {
+// foreignPoints lists every grid point that already belongs to a DIFFERENT
+// net than the one being routed: pin tips, net-label anchors, and the whole
+// length of existing wires.
+//
+// Pin tips alone were not enough. Wires of other nets were only soft obstacles
+// (traversable at a cost), so a route could run along or into one — and a wire
+// that meets another net's wire joins it. The damage does not stop there: the
+// gate then sees ONE net where the source declared two, and demoting it stamps
+// the surviving name onto both, which is how a 7-segment fan-out ended up with
+// four "SEG_C" labels and SEG_G electrically gone. Once that has happened the
+// intent is unrecoverable, so the route must never be drawn in the first place.
+//
+// Wires are sampled at the router's own grid pitch; anything finer would be
+// invisible to the A* anyway.
+func foreignPoints(sch *sexp.Schematic, own []pinPos) [][2]float64 {
+	const gridPitch = 1.27
+
 	ownAt := make(map[[2]float64]bool, len(own))
 	for _, p := range own {
 		ownAt[[2]float64{sexp.Round2(p.x), sexp.Round2(p.y)}] = true
 	}
+	ownNet := ""
+	netOf := sexp.TracePointNets(sch)
+	for _, p := range own {
+		if n := netOf[[2]float64{sexp.Round2(p.x), sexp.Round2(p.y)}]; n != "" {
+			ownNet = n
+			break
+		}
+	}
+
+	seen := make(map[[2]float64]bool)
 	var out [][2]float64
+	add := func(x, y float64) {
+		key := [2]float64{sexp.Round2(x), sexp.Round2(y)}
+		if ownAt[key] || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+
 	for _, sym := range sexp.ReadSymbols(sch) {
 		for _, pin := range sym.Pins {
-			key := [2]float64{sexp.Round2(pin.X), sexp.Round2(pin.Y)}
-			if ownAt[key] {
-				continue
-			}
-			out = append(out, key)
+			add(pin.X, pin.Y)
+		}
+	}
+	for _, c := range sch.Root().Children {
+		if c.Head() != "label" {
+			continue
+		}
+		if atN := sexp.FindList(c, "at"); atN != nil {
+			add(parseCoord(sexp.AtomValue(atN, 1)), parseCoord(sexp.AtomValue(atN, 2)))
+		}
+	}
+	for _, w := range sch.Wires() {
+		ax, ay, bx, by, ok := metrics.WireCoords(w)
+		if !ok {
+			continue
+		}
+		if ownNet != "" && netOf[[2]float64{sexp.Round2(ax), sexp.Round2(ay)}] == ownNet {
+			continue // our own wiring: routing along it is how a net joins up
+		}
+		steps := int(math.Max(math.Abs(bx-ax), math.Abs(by-ay))/gridPitch) + 1
+		for i := 0; i <= steps; i++ {
+			t := float64(i) / float64(steps)
+			add(ax+(bx-ax)*t, ay+(by-ay)*t)
 		}
 	}
 	return out
+}
+
+func parseCoord(s string) float64 {
+	var v float64
+	fmt.Sscan(s, &v)
+	return v
 }

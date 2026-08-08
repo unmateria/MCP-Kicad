@@ -183,7 +183,7 @@ func weldOnce(sch *sexp.Schematic, netName string, comps []component, maxLen flo
 	bodies := bodyBoxes(sch)
 	segs := wireSegments(sch)
 	netOf := sexp.TracePointNets(sch)
-	foreign := foreignPinTips(sch, netName, netOf)
+	foreign := foreignPoints(netOf, netName)
 	junctions := junctionPoints(sch)
 
 	for _, cp := range orderedComponentPairs(comps) {
@@ -714,24 +714,38 @@ func contentReach(sch *sexp.Schematic) float64 {
 	return math.Max(minWeldReach, math.Hypot(maxX-minX, maxY-minY)*weldReachFraction)
 }
 
-// foreignPinTips lists the pin tips that belong to some OTHER net than
-// netName — the cells a weld for this net may not touch.
-func foreignPinTips(sch *sexp.Schematic, netName string, netOf map[pt]string) []pt {
+// foreignPoints lists every point that already BELONGS to another net: pin
+// tips, net-label anchors and wire endpoints alike.
+//
+// Pins were not enough. A gate demotion replaces a net's wires with labels,
+// and a label owns its point exactly the way a pin does — so a weld routed
+// over a demoted neighbour's label joined the two nets, which is how a real
+// 7-segment fan-out ended up with SEG_G shorted to SEG_C. sexp.TracePointNets
+// already knows the owner of every point in the netlist graph; asking it is
+// both simpler and more complete than enumerating symbol pins.
+//
+// Iterating the map is safe here: the result is a set used for membership,
+// and it is sorted before returning so the order it is scanned in — and hence
+// which conflict gets reported first — is stable.
+func foreignPoints(netOf map[pt]string, netName string) []pt {
 	var out []pt
-	for _, sym := range sexp.ReadSymbols(sch) {
-		for _, p := range sym.Pins {
-			key := pt{sexp.Round2(p.X), sexp.Round2(p.Y)}
-			if netOf[key] == netName {
-				continue
-			}
-			out = append(out, key)
+	for p, owner := range netOf {
+		if owner == "" || owner == netName {
+			continue
 		}
+		out = append(out, p)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i][0] != out[j][0] {
+			return out[i][0] < out[j][0]
+		}
+		return out[i][1] < out[j][1]
+	})
 	return out
 }
 
 // touchesForeignPin reports whether a candidate route lands on, or runs over,
-// a pin belonging to another net. Either way KiCad reads it as a connection,
+// a point belonging to another net (a pin, or a label that owns that point). Either way KiCad reads it as a connection,
 // which turns a cosmetic upgrade into a short.
 //
 // The gate cannot be relied on to catch this after the fact: once the wire is

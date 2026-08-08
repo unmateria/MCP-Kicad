@@ -404,20 +404,53 @@ func (e *Env) applyNoConnects(sch *sexp.Schematic, d *compile.Design, sb *string
 
 // CompileSchematicArgs is the MCP input for compile_schematic.
 type CompileSchematicArgs struct {
-	DesignPath string `json:"design_path" jsonschema:"Path to the .design.json declarative source (see docs/compiler/FORMAT.md)"`
+	Design     string `json:"design,omitempty"      jsonschema:"The .design.json source ITSELF as JSON text. Use this when you have no way to write files (e.g. Claude Desktop): the source is saved next to the output so it can be edited and recompiled. Either this or design_path."`
+	DesignPath string `json:"design_path,omitempty" jsonschema:"Path to an existing .design.json declarative source (see docs/compiler/FORMAT.md). Either this or design."`
 	OutputPath string `json:"output_path,omitempty" jsonschema:"Optional output .kicad_sch path; default <design dir>/<project>.kicad_sch"`
 }
 
 func (e *Env) handleCompileSchematic(_ context.Context, _ *mcp.CallToolRequest, input CompileSchematicArgs) (res *mcp.CallToolResult, _ any, _ error) {
 	defer recoverToolPanic(&res)
-	if input.DesignPath == "" {
-		return toolText("error: design_path is required"), nil, nil
+
+	designPath := input.DesignPath
+	savedNote := ""
+
+	// Inline source. Without this the declarative path is unusable from any
+	// client that has no filesystem — which is most of them — and the caller
+	// falls back to the low-level tools, which skip the whole quality
+	// pipeline (no text placement, no weld, no netlist verification).
+	if strings.TrimSpace(input.Design) != "" {
+		if designPath != "" {
+			return toolText("error: pass either design (the source itself) or design_path, not both"), nil, nil
+		}
+		d, err := compile.ParseDesign([]byte(input.Design))
+		if err != nil {
+			return toolText(fmt.Sprintf("error: the inline design source is not valid: %v\n\nSee design_guide and docs/compiler/FORMAT.md.", err)), nil, nil
+		}
+		project := d.Project
+		if project == "" {
+			project = "design"
+		}
+		dir := filepath.Join(e.OutputDir, project)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return toolText(fmt.Sprintf("error: cannot create %s: %v", dir, err)), nil, nil
+		}
+		designPath = filepath.Join(dir, project+".design.json")
+		if err := os.WriteFile(designPath, []byte(input.Design), 0o644); err != nil {
+			return toolText(fmt.Sprintf("error: cannot save the source: %v", err)), nil, nil
+		}
+		savedNote = "\nsource saved: " + designPath + "  (edit this and recompile — never the .kicad_sch)"
 	}
-	out, err := e.CompileDesign(input.DesignPath, input.OutputPath)
+
+	if designPath == "" {
+		return toolText("error: provide design (the source itself) or design_path"), nil, nil
+	}
+
+	out, err := e.CompileDesign(designPath, input.OutputPath)
 	if err != nil && out == nil {
-		return toolText(fmt.Sprintf("compile error: %v", err)), nil, nil
+		return toolText(fmt.Sprintf("compile error: %v%s", err, savedNote)), nil, nil
 	}
-	report := out.Report + "\nschematic: " + out.SchematicPath
+	report := out.Report + "\nschematic: " + out.SchematicPath + savedNote
 	if err != nil {
 		// Netlist defects come with a usable result: show the report and the
 		// preview, which is what the fix is worked out from, but lead with
@@ -430,8 +463,10 @@ func (e *Env) handleCompileSchematic(_ context.Context, _ *mcp.CallToolRequest, 
 // RegisterCompileTools registers the design-compiler tool set.
 func RegisterCompileTools(s *mcp.Server, env *Env) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "compile_schematic",
-		Description: "Compile a declarative .design.json source (blocks, pin-anchored placement, nets) into a complete .kicad_sch with wiring, power symbols, no_connects, ERC and a rendered preview. The source file is the editing surface: to change the schematic, edit the source and recompile. Read design_guide BEFORE authoring a source.",
+		Name: "compile_schematic",
+		Description: "THE way to build a schematic. Pass the whole design as one declarative source — either inline in `design` (no files needed) or as `design_path` — and get back a complete .kicad_sch with placement, wiring, power symbols, no_connects, ERC and a rendered preview. " +
+			"Prefer this over add_symbol/connect_pins/connect_netlist for anything you are creating: those are single-step editors that DO NOT run text placement, wire welding or netlist verification, so schematics built with them come out with overlapping text and can carry undetected shorts. " +
+			"Read design_guide FIRST. To change anything, edit the source and recompile — never the .kicad_sch.",
 	}, WrapTool(env.Log, "compile_schematic", env.handleCompileSchematic))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "design_guide",
