@@ -873,6 +873,8 @@ func NewSymbolInstance(libID, reference, value, footprint string, x, y, rotation
 		List(Atom("lib_id"), Str(libID)),
 		List(Atom("at"), Atom(fmt.Sprintf("%.6g", x)), Atom(fmt.Sprintf("%.6g", y)), Atom(fmt.Sprintf("%.6g", rotation))),
 		List(Atom("unit"), Atom(strconv.Itoa(unit))),
+		// (mirror …) is inserted by SetSymbolMirror when asked for; KiCad
+		// omits the node entirely on unmirrored symbols.
 		List(Atom("exclude_from_sim"), Atom("no")),
 		List(Atom("in_bom"), boolAtom(inBom)),
 		List(Atom("on_board"), boolAtom(onBoard)),
@@ -1335,4 +1337,63 @@ func NewNetLabel(name string, x, y, angleDeg float64) *Node {
 			List(Atom("effects"), List(Atom("font"), List(Atom("size"), Atom("1.27"), Atom("1.27"))), List(Atom("hide"), Atom("yes"))),
 		),
 	)
+}
+
+// SetSymbolMirror stamps KiCad's (mirror x|y) onto a symbol instance and
+// reflects its property anchors to match, since those carry absolute
+// coordinates that no longer follow the body once it flips.
+//
+// The node goes right after (at …), which is where KiCad writes it, and an
+// axis of "" removes any mirror already present. Reflecting the geometry
+// itself is ReadSymbols' job — see applyMirror in pins.go, and the measured
+// convention in internal/compile.transformOffset.
+func SetSymbolMirror(inst *Node, axis string) {
+	if inst == nil {
+		return
+	}
+
+	atN := FindList(inst, "at")
+	if atN == nil {
+		return
+	}
+	cx, cy := parseF(AtomValue(atN, 1)), parseF(AtomValue(atN, 2))
+
+	// Drop any existing mirror node first, so this is idempotent and "" clears.
+	kept := inst.Children[:0]
+	for _, c := range inst.Children {
+		if c.Head() == "mirror" {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	inst.Children = kept
+
+	if axis != "x" && axis != "y" {
+		return
+	}
+
+	for _, c := range inst.Children {
+		if c.Head() != "property" {
+			continue
+		}
+		pAt := FindList(c, "at")
+		if pAt == nil || len(pAt.Children) < 3 {
+			continue
+		}
+		if axis == "y" {
+			pAt.Children[1] = Atom(fmt.Sprintf("%.6g", round2(2*cx-parseF(AtomValue(pAt, 1)))))
+		} else {
+			pAt.Children[2] = Atom(fmt.Sprintf("%.6g", round2(2*cy-parseF(AtomValue(pAt, 2)))))
+		}
+	}
+
+	// Insert directly after (at …) to match KiCad's own node order.
+	mirrorNode := List(Atom("mirror"), Atom(axis))
+	for i, c := range inst.Children {
+		if c.Head() == "at" {
+			rest := append([]*Node{mirrorNode}, inst.Children[i+1:]...)
+			inst.Children = append(inst.Children[:i+1], rest...)
+			return
+		}
+	}
 }

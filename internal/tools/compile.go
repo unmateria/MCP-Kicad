@@ -39,13 +39,6 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	if err != nil {
 		return nil, err
 	}
-	for _, blk := range d.Blocks {
-		for _, s := range blk.Symbols {
-			if s.Mirror {
-				return nil, fmt.Errorf("block %s: symbol %s: mirror is not supported yet", blk.Name, s.Ref)
-			}
-		}
-	}
 	if outSchPath == "" {
 		outSchPath = filepath.Join(filepath.Dir(designPath), d.Project+".kicad_sch")
 	}
@@ -120,8 +113,12 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 				}
 				pinNums := extractPinNumbers(sch, ps.LibID, unit)
 				libDef := sch.FindLibDef(ps.LibID)
-				sch.AddSymbol(sexp.NewSymbolInstance(ps.LibID, ps.Ref, ps.Value, "",
-					ps.X, ps.Y, float64(ps.Rot), unit, pinNums, sch.UUID(), true, true, libDef))
+				inst := sexp.NewSymbolInstance(ps.LibID, ps.Ref, ps.Value, "",
+					ps.X, ps.Y, float64(ps.Rot), unit, pinNums, sch.UUID(), true, true, libDef)
+				if ps.Mirror {
+					sexp.SetSymbolMirror(inst, "y")
+				}
+				sch.AddSymbol(inst)
 				sexp.FixLabelPositions(sch, ps.Ref)
 			}
 			fmt.Fprintf(&sb, "  block %-8s %d symbols\n", pb.Name, len(pb.Symbols))

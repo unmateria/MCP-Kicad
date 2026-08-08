@@ -53,7 +53,8 @@ type SchematicSymbol struct {
 	Value     string
 	X, Y      float64
 	Rotation  float64
-	Unit      int // unit number for multi-unit ICs (1-based)
+	Mirror    string // "", "x" or "y" — KiCad's (mirror …), applied after Rotation
+	Unit      int    // unit number for multi-unit ICs (1-based)
 	Pins      []PinInfo
 
 	// Graphic* is the bounding box of the symbol's DRAWN primitives
@@ -194,7 +195,14 @@ func resolveSymbol(inst, libSymbols *Node) *SchematicSymbol {
 		}
 	}
 
-	ss := &SchematicSymbol{Reference: ref, LibID: libID, Value: val, X: cx, Y: cy, Rotation: rot, Unit: unit}
+	mirror := ""
+	if m := FindList(inst, "mirror"); m != nil {
+		if axis := AtomValue(m, 1); axis == "x" || axis == "y" {
+			mirror = axis
+		}
+	}
+
+	ss := &SchematicSymbol{Reference: ref, LibID: libID, Value: val, X: cx, Y: cy, Rotation: rot, Mirror: mirror, Unit: unit}
 
 	if libSymbols == nil {
 		return ss
@@ -207,10 +215,46 @@ func resolveSymbol(inst, libSymbols *Node) *SchematicSymbol {
 				ss.GraphicX2, ss.GraphicY2 = gx2, gy2
 				ss.HasGraphic = true
 			}
+			applyMirror(ss)
 			return ss
 		}
 	}
 	return ss
+}
+
+// applyMirror reflects an already-placed symbol's geometry about its own
+// origin. KiCad applies (mirror …) to the FINISHED placement, after the
+// rotation — measured with kicad-cli on a Device:R, which (mirror y) leaves
+// alone at rot 0 and flips end-for-end at rot 90. Reflecting the resolved
+// coordinates here is that definition applied literally, and it keeps
+// extractPins and graphicBBox untouched.
+func applyMirror(ss *SchematicSymbol) {
+	switch ss.Mirror {
+	case "y": // flip the X axis
+		for i := range ss.Pins {
+			ss.Pins[i].X = round2(2*ss.X - ss.Pins[i].X)
+			ss.Pins[i].Direction = normalizeDeg(180 - ss.Pins[i].Direction)
+		}
+		if ss.HasGraphic {
+			ss.GraphicX1, ss.GraphicX2 = round2(2*ss.X-ss.GraphicX2), round2(2*ss.X-ss.GraphicX1)
+		}
+	case "x": // flip the Y axis
+		for i := range ss.Pins {
+			ss.Pins[i].Y = round2(2*ss.Y - ss.Pins[i].Y)
+			ss.Pins[i].Direction = normalizeDeg(-ss.Pins[i].Direction)
+		}
+		if ss.HasGraphic {
+			ss.GraphicY1, ss.GraphicY2 = round2(2*ss.Y-ss.GraphicY2), round2(2*ss.Y-ss.GraphicY1)
+		}
+	}
+}
+
+func normalizeDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
 }
 
 // extractPins collects pins for the given unit from a lib symbol definition

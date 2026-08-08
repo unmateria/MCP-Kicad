@@ -53,8 +53,13 @@ jamás escribe milímetros ni coordenadas absolutas.
 - `dir`: `left` | `right` | `up` | `down`. `cells`: entero ≥ 1.
 - `rot` (0/90/180/270) opcional; sin `rot` se usa 0 — las orientaciones de
   librería de KiCad ya son las canónicas (R y C verticales con pin 1 arriba,
-  crystal horizontal). `mirror` está reservado en el formato pero el compilador
-  aún no lo soporta (error explícito).
+  crystal horizontal).
+- `mirror` (booleano) opcional: emite el `(mirror y)` de KiCad, el volteo
+  **horizontal**. Se aplica DESPUÉS de la rotación, sobre la colocación ya
+  terminada: un `Device:R` a `rot 0` (pines en el eje Y) no cambia, y a
+  `rot 90` intercambia sus extremos. Úsalo cuando la señal entra por el lado
+  contrario al canónico — un op-amp alimentado desde la derecha, un conector
+  mirando hacia fuera — y así evitas que el cable tenga que rodear el símbolo.
 - Un pin con nombre repetido (pines apilados, p. ej. `U1.VCC` en 4 y 6) resuelve
   al de menor número de pin, determinista.
 - **Multi-unidad**: una parte con varias unidades (NE5532 A/B/C) se declara con
