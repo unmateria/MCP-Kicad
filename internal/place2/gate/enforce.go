@@ -76,7 +76,7 @@ func pickWorstNet(sch *sexp.Schematic, violations []Violation) (name, reason str
 	seen := make(map[string]bool)
 	var names []string
 	for _, v := range violations {
-		for _, n := range [2]string{v.Net, v.Net2} {
+		for _, n := range culprits(v) {
 			if n == "" || seen[n] {
 				continue
 			}
@@ -102,6 +102,20 @@ func pickWorstNet(sch *sexp.Schematic, violations []Violation) (name, reason str
 	return names[0], reasonFor[names[0]]
 }
 
+// culprits lists the nets whose demotion could actually clear a violation.
+// A crossing or a collinear overlap is symmetric — removing either net's
+// wires fixes it. WireOverPin is not: the offending geometry belongs to the
+// wire, and the pin it runs over is the victim, so demoting the pin's net
+// would leave the wire in place and the violation standing.
+func culprits(v Violation) []string {
+	switch v.Kind {
+	case CrossNetCrossing, CollinearOverlap:
+		return []string{v.Net, v.Net2}
+	default:
+		return []string{v.Net}
+	}
+}
+
 func violationReason(v Violation, netName string) string {
 	other := func() string {
 		if netName == v.Net2 {
@@ -118,6 +132,8 @@ func violationReason(v Violation, netName string) string {
 		return v.Detail
 	case SameNetNoJunction:
 		return "self-crossing without a junction"
+	case WireOverPin:
+		return v.Detail
 	}
 	return string(v.Kind)
 }

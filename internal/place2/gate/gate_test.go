@@ -279,3 +279,87 @@ func TestEnforceNoopOnCleanSchematic(t *testing.T) {
 		t.Errorf("Enforce must not remove wires from a clean schematic, wire count changed to %d", got)
 	}
 }
+
+// --- Test 5: wire running over a foreign pin tip ---
+
+// Three vertical resistors side by side with their pin-2 tips on one row at
+// y=48.26 (rot 90 puts pin 2 on top), and a wire spanning that row from R1.2
+// to R3.2 — so it runs exactly over R2.2 without stopping there.
+//
+// KiCad 10 connects nothing in that geometry (measured with kicad-cli sch
+// export netlist: the crossed pin stays on its own net), which is exactly why
+// it has to be caught here. The drawing tells the reader R2 is connected to
+// the row when it is not, and one junction dot away it becomes a real short.
+func pinRowBody(extra string) string {
+	return deviceRLibSymbols +
+		resistor("R1", 0, 50.8, 90) +
+		resistor("R2", 15.24, 50.8, 90) +
+		resistor("R3", 30.48, 50.8, 90) +
+		extra
+}
+
+func TestCheckFlagsWireOverForeignPin(t *testing.T) {
+	sch := mustParse(t, wrapSch(pinRowBody(`
+	(wire (pts (xy 0 48.26) (xy 30.48 48.26)) (stroke (width 0) (type default)) (uuid "w1"))`)))
+
+	var over []Violation
+	for _, v := range Check(sch) {
+		if v.Kind == WireOverPin {
+			over = append(over, v)
+		}
+	}
+	if len(over) != 1 {
+		t.Fatalf("expected exactly 1 WIRE_OVER_PIN (R2.2), got %d: %+v", len(over), Check(sch))
+	}
+	if !strings.Contains(over[0].Detail, "R2.2") {
+		t.Errorf("violation should name the pin it runs over, got %q", over[0].Detail)
+	}
+}
+
+// Enforce must clear it by demoting the WIRE's net. Demoting the pin's net
+// would leave the offending wire in place and the violation standing.
+func TestEnforceClearsWireOverForeignPin(t *testing.T) {
+	sch := mustParse(t, wrapSch(pinRowBody(`
+	(wire (pts (xy 0 48.26) (xy 30.48 48.26)) (stroke (width 0) (type default)) (uuid "w1"))`)))
+
+	result := Enforce(sch)
+	if len(result.Demoted) == 0 {
+		t.Fatal("expected the wire's net to be demoted")
+	}
+	if result.Violations != 0 {
+		t.Errorf("Enforce left %d violation(s) standing", result.Violations)
+	}
+	for _, v := range Check(sch) {
+		if v.Kind == WireOverPin {
+			t.Errorf("WIRE_OVER_PIN survived Enforce: %s", v.Detail)
+		}
+	}
+}
+
+// A wire ENDING on a pin is how every connection is drawn — never a
+// violation, or the gate would demote every net in every schematic.
+func TestCheckIgnoresWireEndingOnPin(t *testing.T) {
+	sch := mustParse(t, wrapSch(pinRowBody(`
+	(wire (pts (xy 0 48.26) (xy 15.24 48.26)) (stroke (width 0) (type default)) (uuid "w1"))`)))
+
+	for _, v := range Check(sch) {
+		if v.Kind == WireOverPin {
+			t.Errorf("a wire ending on R2.2 is a normal connection, got: %s", v.Detail)
+		}
+	}
+}
+
+// With a junction on the pin, KiCad DOES connect — so the drawing no longer
+// lies and this is not a geometric defect. Whether that connection belongs
+// in the netlist is answered by tools.VerifyNetlist against the source.
+func TestCheckIgnoresWireOverPinWithJunction(t *testing.T) {
+	sch := mustParse(t, wrapSch(pinRowBody(`
+	(wire (pts (xy 0 48.26) (xy 30.48 48.26)) (stroke (width 0) (type default)) (uuid "w1"))
+	(junction (at 15.24 48.26) (diameter 0) (color 0 0 0 0) (uuid "j1"))`)))
+
+	for _, v := range Check(sch) {
+		if v.Kind == WireOverPin {
+			t.Errorf("a junction makes it a real connection, not a lie: %s", v.Detail)
+		}
+	}
+}

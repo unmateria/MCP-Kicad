@@ -4,17 +4,25 @@
 // The router (internal/router, internal/route2) is not touched by this
 // package — instead of trying to make routing perfect, the gate DETECTS any
 // net whose wiring violates a geometric invariant (crosses another net,
-// crosses itself without a junction, cuts through a symbol body, or overlaps
-// another net's wire collinearly) and DEMOTES that one net: its wires and
-// junctions are deleted and replaced with a net label at every pin, which
-// has no geometry and therefore cannot violate anything. A demoted net stays
-// electrically identical (same pins, same net, just drawn without wires).
+// crosses itself without a junction, cuts through a symbol body, overlaps
+// another net's wire collinearly, or runs over a foreign pin tip) and
+// DEMOTES that one net: its wires and junctions are deleted and replaced
+// with a net label at every pin, which has no geometry and therefore cannot
+// violate anything. A demoted net stays electrically identical (same pins,
+// same net, just drawn without wires).
 //
 // Guarantee: after gate.Enforce runs, the schematic has zero wire crossings
-// between different nets, zero wires through symbol bodies, and zero
-// overlapping collinear segments of different nets. The loop terminates
-// because every demotion strictly removes wire geometry; the worst case is
-// an all-label schematic, which trivially has zero violations.
+// between different nets, zero wires through symbol bodies, zero overlapping
+// collinear segments of different nets, and no wire running over a pin it
+// does not connect to. The loop terminates because every demotion strictly
+// removes wire geometry; the worst case is an all-label schematic, which
+// trivially has zero violations.
+//
+// What this package cannot decide is whether the connectivity it preserves
+// is the connectivity the design asked for — a wire landing on a foreign pin
+// is geometrically impeccable and electrically wrong. That question belongs
+// to tools.VerifyNetlist, which compares the emitted netlist against the
+// source that declared it.
 package gate
 
 import (
@@ -51,6 +59,14 @@ const (
 	// interior (inset from pin tips — legitimate pin connections never
 	// trigger this).
 	WireThruSymbol ViolationKind = "WIRE_THRU_SYMBOL"
+
+	// WireOverPin: a wire passes over a pin tip in mid-segment. Measured
+	// against KiCad 10 (kicad-cli sch export netlist), this connects nothing
+	// — connection needs a wire endpoint or a junction — so it is not a
+	// short. It is a lie told to the reader: the eye reads that T as a
+	// connection. It is also a trap, because adding a junction there, or
+	// nudging either part, silently turns it into one.
+	WireOverPin ViolationKind = "WIRE_OVER_PIN"
 
 	// CollinearOverlap: two segments of DIFFERENT nets lie on the same line
 	// and their intervals overlap — an electrical short drawn as a single
@@ -151,8 +167,61 @@ func Check(sch *sexp.Schematic) []Violation {
 		}
 	}
 
+	for _, s := range segs {
+		for _, sym := range syms {
+			for _, pin := range sym.Pins {
+				if !pinInSegmentInterior(s, pin.X, pin.Y) {
+					continue
+				}
+				if junctions[round2pt(pin.X, pin.Y)] {
+					// A junction here DOES connect in KiCad. Whether that is
+					// the intended netlist is not a geometric question —
+					// tools.VerifyNetlist answers it against the source.
+					continue
+				}
+				pinNet := netOf[round2pt(pin.X, pin.Y)]
+				violations = append(violations, Violation{
+					Kind: WireOverPin, Net: s.net, Net2: pinNet,
+					Detail: fmt.Sprintf("%s wire runs over pin %s.%s (%s) without connecting to it",
+						s.net, sym.Reference, pin.Number, pinNetLabel(pinNet)),
+				})
+			}
+		}
+	}
+
 	sortViolationsForDisplay(violations)
 	return violations
+}
+
+// pinInSegmentInterior reports whether a pin tip lies ON a wire segment but
+// strictly between its endpoints. Endpoints are excluded because a wire
+// ending on a pin is the normal way to connect one.
+func pinInSegmentInterior(s wireSeg, px, py float64) bool {
+	switch metrics.SegDir(s.ax, s.ay, s.bx, s.by) {
+	case 0: // horizontal
+		if math.Abs(py-s.ay) > eps {
+			return false
+		}
+		return strictlyBetween(px, s.ax, s.bx)
+	case 1: // vertical
+		if math.Abs(px-s.ax) > eps {
+			return false
+		}
+		return strictlyBetween(py, s.ay, s.by)
+	}
+	return false
+}
+
+func strictlyBetween(v, a, b float64) bool {
+	lo, hi := math.Min(a, b), math.Max(a, b)
+	return v > lo+eps && v < hi-eps
+}
+
+func pinNetLabel(net string) string {
+	if net == "" {
+		return "unconnected"
+	}
+	return "net " + net
 }
 
 func collectWireSegs(sch *sexp.Schematic, netOf map[[2]float64]string) []wireSeg {
