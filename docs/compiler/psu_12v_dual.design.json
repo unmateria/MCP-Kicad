@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "project": "psu_12v_dual",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "input",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x03", "value": "SEC_TRAFO", "mirror": true }
+      ]
+    },
+    {
+      "name": "bridge",
+      "symbols": [
+        { "ref": "D1", "lib": "Diode:1N4007", "value": "1N4007", "rot": 270 },
+        { "ref": "D3", "lib": "Diode:1N4007", "value": "1N4007", "rot": 270,
+          "place": { "pin": "1", "at": "D1.2", "dir": "down", "cells": 3 } },
+        { "ref": "D2", "lib": "Diode:1N4007", "value": "1N4007", "rot": 270,
+          "place": { "pin": "1", "at": "D1.1", "dir": "right", "cells": 8 } },
+        { "ref": "D4", "lib": "Diode:1N4007", "value": "1N4007", "rot": 270,
+          "place": { "pin": "1", "at": "D2.2", "dir": "down", "cells": 3 } }
+      ]
+    },
+    {
+      "name": "filter",
+      "symbols": [
+        { "ref": "C1", "lib": "Device:C_Polarized", "value": "2200u", "rot": 0 },
+        { "ref": "C2", "lib": "Device:C_Polarized", "value": "2200u", "rot": 0,
+          "place": { "pin": "1", "at": "C1.2", "dir": "down", "cells": 4 } }
+      ]
+    },
+    {
+      "name": "reg_pos",
+      "symbols": [
+        { "ref": "U1", "lib": "Regulator_Linear:L7812", "value": "L7812" },
+        { "ref": "C3", "lib": "Device:C", "value": "100n", "rot": 0,
+          "place": { "pin": "1", "at": "U1.1", "dir": "left", "cells": 8 } },
+        { "ref": "C4", "lib": "Device:C", "value": "100n", "rot": 0,
+          "place": { "pin": "1", "at": "U1.3", "dir": "right", "cells": 8 } }
+      ]
+    },
+    {
+      "name": "led",
+      "symbols": [
+        { "ref": "R1", "lib": "Device:R", "value": "1k", "rot": 0 },
+        { "ref": "D5", "lib": "Device:LED", "value": "LED_GREEN", "rot": 90,
+          "place": { "pin": "2", "at": "R1.2", "dir": "down", "cells": 3 } }
+      ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x03", "value": "SALIDA" }
+      ]
+    },
+    {
+      "name": "reg_neg",
+      "symbols": [
+        { "ref": "U2", "lib": "Regulator_Linear:L7912", "value": "L7912" },
+        { "ref": "C5", "lib": "Device:C", "value": "100n", "rot": 0,
+          "place": { "pin": "1", "at": "U2.2", "dir": "left", "cells": 8 } },
+        { "ref": "C6", "lib": "Device:C", "value": "100n", "rot": 0,
+          "place": { "pin": "1", "at": "U2.3", "dir": "right", "cells": 8 } }
+      ]
+    }
+  ],
+
+  "arrange": [
+    ["input", "bridge", "filter"],
+    ["reg_pos", "led", "output"],
+    ["reg_neg"]
+  ],
+
+  "nets": {
+    "AC1": ["J1.1", "D1.2", "D3.1"],
+    "AC2": ["J1.3", "D2.2", "D4.1"],
+    "+VRAW": ["D1.1", "D2.1", "C1.1", "U1.1", "C3.1"],
+    "-VRAW": ["D3.2", "D4.2", "C2.2", "U2.2", "C5.1"],
+    "_LED_MID": ["R1.2", "D5.2"],
+    "GND": ["J1.2", "C1.2", "C2.1", "U1.2", "U2.1", "C3.2", "C4.2", "C5.2", "C6.2", "J2.2", "D5.1"],
+    "+12V": ["U1.3", "C4.1", "R1.1", "J2.1"],
+    "-12V": ["U2.3", "C6.1", "J2.3"]
+  },
+
+  "power_nets": {
+    "GND": "power:GND",
+    "+12V": "power:+12V",
+    "-12V": "power:-12V"
+  }
+}

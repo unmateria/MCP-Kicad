@@ -75,6 +75,20 @@ func (p *PowerEmitter) Emit(libID, targetRef string) (msg string, ok bool, dedup
 	}
 	ugly := func(x, y float64) bool {
 		cand := powerBodyBox(x, y)
+		// The stub itself must not cut through anything. One GND stub crossing
+		// a connector body was enough for the gate to demote the WHOLE GND
+		// rail — and since a rail's only wires are its stubs, that stranded
+		// eleven power symbols at once and left the sheet labelled instead of
+		// drawn. Cheaper to not draw that stub in the first place.
+		for _, s := range sexp.ReadSymbols(p.sch) {
+			if isPowerLib(s.LibID) {
+				continue
+			}
+			bx1, by1, bx2, by2 := metrics.BodyBBox(s)
+			if sexp.SegmentCrossesBox(target.X, target.Y, x, y, bx1, by1, bx2, by2) {
+				return true
+			}
+		}
 		for _, s := range sexp.ReadSymbols(p.sch) {
 			// Bodies of same-rail power symbols may sit flush — that is the
 			// bus alignment the project wants. Anything else must not touch.

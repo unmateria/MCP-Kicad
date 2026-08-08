@@ -114,8 +114,16 @@ func classify(v Violation) ClassifiedViolation {
 	}
 	if containsAny(t, "missing_power_flag", "power_pin_not_driven") ||
 		containsAny(d, "power pin", "power flag") {
+		// Do NOT tell people to add the rail to power_nets. That switches the
+		// net to the per-pin power policy — a power symbol on every pin and no
+		// routing at all — which shreds a net like +VRAW that genuinely needs
+		// wires between a bridge, a capacitor and a regulator. A session
+		// followed that advice and got a SPLIT netlist for its trouble.
 		return ClassifiedViolation{v, CategoryFixable,
-			"Declare the rail in the source's `power_nets` — compile_schematic adds the PWR_FLAG itself"}
+			"KiCad wants a driver on this rail. compile_schematic adds a PWR_FLAG automatically; " +
+				"if this one is fed by a rectifier or a connector rather than a regulator output, " +
+				"the warning is expected and harmless. Do NOT add the rail to power_nets to silence it — " +
+				"that switches the whole net to one-symbol-per-pin and stops it being wired at all"}
 	}
 	if containsAny(t, "duplicate_reference", "no_reference", "empty_reference") ||
 		containsAny(d, "duplicate reference", "missing reference", "no reference") {

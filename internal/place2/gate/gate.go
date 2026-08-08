@@ -77,9 +77,9 @@ const (
 
 // Violation is one geometric defect detected by Check.
 type Violation struct {
-	Kind ViolationKind
-	Net  string // net to blame (primary; the one Enforce will consider demoting)
-	Net2 string // the OTHER net involved; "" for single-net violations (WireThruSymbol, SameNetNoJunction)
+	Kind   ViolationKind
+	Net    string // net to blame (primary; the one Enforce will consider demoting)
+	Net2   string // the OTHER net involved; "" for single-net violations (WireThruSymbol, SameNetNoJunction)
 	Detail string
 }
 
@@ -154,6 +154,18 @@ func Check(sch *sexp.Schematic) []Violation {
 	for _, s := range segs {
 		for _, sym := range syms {
 			if strings.HasPrefix(sym.LibID, "power:") || sym.LibID == "Device:PWR_FLAG" {
+				continue
+			}
+			// A wire that starts or ends on one of THIS symbol's pins is its
+			// connection, not an intrusion. Skipping it matters for parts whose
+			// drawn outline encloses its own pin tips — a connector's rectangle
+			// extends past its pins, so every wire leaving it technically
+			// "passes through the body". That made the gate demote every net
+			// touching a connector: on a dual supply it took out GND, +12V and
+			// −12V at once, and since a rail's only wires are its power-symbol
+			// stubs, twenty symbols were stranded and the sheet came out
+			// labelled instead of drawn.
+			if touchesOwnPin(sym, s) {
 				continue
 			}
 			x1, y1, x2, y2 := metrics.BodyBBox(sym)
@@ -326,4 +338,17 @@ func sortViolationsForDisplay(v []Violation) {
 		}
 		return v[i].Net2 < v[j].Net2
 	})
+}
+
+// touchesOwnPin reports whether a wire segment ends on a pin of the given
+// symbol — the difference between a wire connecting to a part and a wire
+// driven straight through it.
+func touchesOwnPin(sym sexp.SchematicSymbol, s wireSeg) bool {
+	for _, p := range sym.Pins {
+		if (math.Abs(p.X-s.ax) < eps && math.Abs(p.Y-s.ay) < eps) ||
+			(math.Abs(p.X-s.bx) < eps && math.Abs(p.Y-s.by) < eps) {
+			return true
+		}
+	}
+	return false
 }
