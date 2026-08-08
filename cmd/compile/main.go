@@ -42,4 +42,10 @@ func main() {
 	if res.PNGPath != "" {
 		fmt.Println("png:", res.PNGPath)
 	}
+	// The schematic and its preview are written either way — a netlist defect
+	// is diagnosed by looking at them — but the exit code has to fail so no
+	// script or CI run mistakes a wrong netlist for a good build.
+	if len(res.NetDefects) > 0 {
+		os.Exit(1)
+	}
 }

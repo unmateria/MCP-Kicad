@@ -33,6 +33,23 @@ func (p PinRef) String() string {
 	return p.Reference + "." + name
 }
 
+// Matches reports whether a declared pin reference designates this pin. It
+// accepts both source spellings — "REF.pin" and the unit-qualified
+// "REF.unit.pin" — and matches the trailing part against either the pin
+// number or the pin name, so "U1.7" and "U1.VCC" both hit the same pin.
+// A reference without a unit matches any unit, which is what a single-unit
+// symbol needs.
+func (p PinRef) Matches(decl string) bool {
+	ref, unit, pin := splitRefPinUnit(decl)
+	if ref != p.Reference {
+		return false
+	}
+	if unit != 0 && p.Unit != 0 && unit != p.Unit {
+		return false
+	}
+	return pin == p.PinNumber || pin == p.PinName
+}
+
 // Net is one electrical net in the schematic.
 type Net struct {
 	Name     string   // label name, or auto-generated "Net-(ref.pin)"

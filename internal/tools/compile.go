@@ -27,6 +27,7 @@ type CompileResult struct {
 	SchematicPath string
 	PNGPath       string
 	Report        string
+	NetDefects    []NetDefect // non-empty means the emitted netlist != the declared one
 }
 
 // CompileDesign compiles a .design.json source into a complete schematic:
@@ -232,6 +233,23 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		fmt.Fprintf(&sb, "sheet: %s\n", note)
 	}
 
+	// The compiler's post-condition, checked on the finished schematic: what
+	// we emitted implements exactly the netlist the source declared. The
+	// geometric gate cannot stand in for this — a wire landing on a foreign
+	// pin makes two nets one, which is geometrically consistent and silent.
+	defects := VerifyNetlist(sch, d)
+	switch {
+	case len(d.Nets) == 0:
+		fmt.Fprintf(&sb, "netlist: nothing to verify — the source declares no nets\n")
+	case len(defects) == 0:
+		fmt.Fprintf(&sb, "netlist: verified — %d declared nets implemented exactly\n", len(d.Nets))
+	default:
+		fmt.Fprintf(&sb, "netlist: FAILED — %d defect(s)\n", len(defects))
+		for _, def := range defects {
+			fmt.Fprintf(&sb, "  %s\n", def)
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
 		return nil, err
 	}
@@ -258,7 +276,7 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		}
 	}
 
-	return &CompileResult{SchematicPath: absOut, PNGPath: pngPath, Report: sb.String()}, nil
+	return &CompileResult{SchematicPath: absOut, PNGPath: pngPath, Report: sb.String(), NetDefects: defects}, nil
 }
 
 // stripQuietLabels removes the documentation labels of nets whose source

@@ -65,8 +65,11 @@ func main() {
 		if err := checkReport(res.Report); err != nil {
 			fail(project, err.Error())
 		}
+		if len(res.NetDefects) > 0 {
+			fail(project, fmt.Sprintf("emitted netlist differs from the declared one: %v", res.NetDefects))
+		}
 
-		fmt.Printf("OK %s: no double-quote bug, no duplicate #PWR, gate+routing clean\n", project)
+		fmt.Printf("OK %s: no double-quote bug, no duplicate #PWR, gate+routing clean, netlist verified\n", project)
 		fmt.Println("   schematic:", res.SchematicPath)
 	}
 
