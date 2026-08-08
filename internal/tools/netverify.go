@@ -433,3 +433,54 @@ func checkPowerRails(d *compile.Design) error {
 	}
 	return nil
 }
+
+// demotionAdvice explains a gate demotion the author cannot fix with spacing.
+//
+// When a net's pins point AWAY from each other, no distance makes the wire
+// straight — it has to loop around one of the parts, the gate refuses it, and
+// the connection becomes a label. A relay whose contacts face up while the
+// connector's face left is the classic case: a session tried 3, 6, 12 and 26
+// cells before concluding, correctly, that two of the three contacts could
+// never be wired in line. The fix is rotation or mirror, not millimetres, and
+// saying so is the difference between one recompile and four.
+func demotionAdvice(sch *sexp.Schematic, netName string) string {
+	var pins []sexp.PinInfo
+	for _, net := range sexp.TraceNets(sch) {
+		if net.Name != netName {
+			continue
+		}
+		for _, pr := range net.Pins {
+			for _, sym := range sexp.ReadSymbols(sch) {
+				if sym.Reference != pr.Reference {
+					continue
+				}
+				for _, p := range sym.Pins {
+					if p.Number == pr.PinNumber {
+						pins = append(pins, p)
+					}
+				}
+			}
+		}
+	}
+	if len(pins) < 2 {
+		return ""
+	}
+	// Two pins that face away from EACH OTHER cannot be joined by a straight
+	// or L-shaped wire at any distance: both wires leave in the wrong
+	// direction and something has to loop back.
+	for i := 0; i < len(pins); i++ {
+		for j := i + 1; j < len(pins); j++ {
+			a, b := pins[i], pins[j]
+			adx, ady := a.DirDelta()
+			bdx, bdy := b.DirDelta()
+			aAway := adx*(b.X-a.X)+ady*(b.Y-a.Y) < 0
+			bAway := bdx*(a.X-b.X)+bdy*(a.Y-b.Y) < 0
+			if aAway && bAway {
+				return fmt.Sprintf(
+					"pins %s and %s face away from each other, so no spacing makes this wire straight — rotate or mirror one of the parts",
+					a.Number, b.Number)
+			}
+		}
+	}
+	return ""
+}

@@ -2,6 +2,7 @@ package textplace
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -14,10 +15,21 @@ type Collision struct {
 	Text string  // the string that is hard to read
 	With string  // what it sits on: "body U1", "wire", "label SDA", "text C2"…
 	Area float64 // overlapping area, mm²
+
+	// Intrinsic marks a collision with the text's OWN symbol — its pin
+	// numbers or its body. No amount of `cells` between parts will move it,
+	// because the crowding is inside the package: a 6-pin opto-coupler with a
+	// long net name beside it has nowhere else to put either. Worth saying,
+	// because a session spent two recompiles tuning spacing against one.
+	Intrinsic bool
 }
 
 func (c Collision) String() string {
-	return fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, strings.Replace(c.With, "wire:", "wire ", 1), c.Area)
+	s := fmt.Sprintf("%q over %s (%.2f mm2)", c.Text, strings.Replace(c.With, "wire:", "wire ", 1), c.Area)
+	if c.Intrinsic {
+		s += " [intrinsic to the symbol — spacing will not fix this]"
+	}
+	return s
 }
 
 // Collisions reports the text overlaps a finished schematic still carries.
@@ -75,7 +87,7 @@ func Collisions(sch *sexp.Schematic) []Collision {
 	// construction: those two overlaps are what "attached here" looks like,
 	// not something a reader struggles with. Everything whose rectangle
 	// contains the anchor point is therefore excused — and only that.
-	report := func(text string, b box, skip int, anchor *[2]float64) {
+	report := func(text string, b box, skip int, anchor *[2]float64, owner string) {
 		for j, o := range obs {
 			if j == skip {
 				continue
@@ -98,17 +110,21 @@ func Collisions(sch *sexp.Schematic) []Collision {
 					continue
 				}
 				seen[pair] = true
-				out = append(out, Collision{Text: text, With: names[j], Area: area})
+				out = append(out, Collision{
+					Text: text, With: names[j], Area: area,
+					Intrinsic: owner != "" && belongsTo(names[j], owner),
+				})
 			}
 		}
 	}
 
 	for _, it := range items {
-		report(it.text, it.box, it.obsIdx, nil)
+		report(it.text, it.box, it.obsIdx, nil, it.text) // a field block is owned by its own reference
 	}
 	for _, i := range labelOrder(labels) {
 		l := labels[i]
-		report(l.name, labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), l.obsIdx, &[2]float64{l.x, l.y})
+		report(l.name, labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), l.obsIdx,
+			&[2]float64{l.x, l.y}, symbolAtPoint(syms, l.x, l.y))
 	}
 
 	sort.SliceStable(out, func(a, b int) bool {
@@ -121,4 +137,31 @@ func Collisions(sch *sexp.Schematic) []Collision {
 		return out[a].With < out[b].With
 	})
 	return out
+}
+
+// belongsTo reports whether an obstacle name refers to the given symbol —
+// "body U1", "pin U1.3", "pin number U1.3", "text U1".
+func belongsTo(obstacle, ref string) bool {
+	fields := strings.Fields(obstacle)
+	if len(fields) == 0 {
+		return false
+	}
+	last := fields[len(fields)-1]
+	if i := strings.IndexByte(last, '.'); i >= 0 {
+		last = last[:i]
+	}
+	return last == ref
+}
+
+// symbolAtPoint returns the reference of the symbol owning a pin at (x, y),
+// which is the symbol a net label anchored there belongs to.
+func symbolAtPoint(syms []sexp.SchematicSymbol, x, y float64) string {
+	for _, s := range syms {
+		for _, p := range s.Pins {
+			if math.Abs(p.X-x) < eps && math.Abs(p.Y-y) < eps {
+				return s.Reference
+			}
+		}
+	}
+	return ""
 }
