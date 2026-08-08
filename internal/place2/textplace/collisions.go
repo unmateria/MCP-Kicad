@@ -66,7 +66,11 @@ func Collisions(sch *sexp.Schematic) []Collision {
 	}
 
 	var out []Collision
-	// anchor >= 0 marks a net label, which sits ON its pin and its wire by
+	// Two text items overlapping is ONE collision, but both are scored, so
+	// each pair would otherwise be reported twice — once from each side.
+	seen := make(map[[2]int]bool)
+
+	// anchor != nil marks a net label, which sits ON its pin and its wire by
 	// construction: those two overlaps are what "attached here" looks like,
 	// not something a reader struggles with. Everything whose rectangle
 	// contains the anchor point is therefore excused — and only that.
@@ -79,6 +83,14 @@ func Collisions(sch *sexp.Schematic) []Collision {
 				continue
 			}
 			if area := b.overlap(o); area > eps {
+				pair := [2]int{skip, j}
+				if pair[0] > pair[1] {
+					pair[0], pair[1] = pair[1], pair[0]
+				}
+				if seen[pair] {
+					continue
+				}
+				seen[pair] = true
 				out = append(out, Collision{Text: text, With: names[j], Area: area})
 			}
 		}

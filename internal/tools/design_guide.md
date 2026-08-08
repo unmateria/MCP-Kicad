@@ -81,7 +81,7 @@ cable cuando existe corredor limpio.
 
 | Situación | Receta |
 |---|---|
-| Granja de desacoplo | primera C a 8 celdas del pin VCC del IC (los cuerpos de MCU tienen media anchura ~5 celdas); resto encadenadas a 4 |
+| Granja de desacoplo | primera C a 8 celdas del pin VCC del IC (los cuerpos de MCU tienen media anchura ~5 celdas); resto encadenadas a **5** — a 4 el bloque `ref+valor` de cada C aterriza sobre el cuerpo de su vecina (medido: 4.55 mm² de solape por par) |
 | Cristal + cargas | cristal a 5 celdas del pin XTAL; cargas 2-3 celdas hacia abajo |
 | Pasivo junto a IC pequeño (555, regulador) | 6 celdas del pin (a 4, el texto del pasivo pisa los nombres de pin del IC) |
 | Cadena serie (R→LED) | eslabones a 3-4 celdas, misma Y, rot 90 para que quede horizontal |
@@ -93,6 +93,15 @@ cable cuando existe corredor limpio.
 QUÉ; el solape te da las dos refs implicadas). 3. Toca los números de la
 fuente — nunca el `.kicad_sch`. 4. Recompila. Dos o tres vueltas bastan si
 las recetas de arriba son tu punto de partida.
+
+El informe trae dos líneas que no hay que leer con el ojo, sino obedecer:
+
+- `netlist:` — tiene que decir *verified*. Si dice **FAILED**, el esquema
+  NO implementa la netlist que declaraste (un cable acabó en un pin ajeno,
+  o un net se partió): es un error de verdad, no algo cosmético.
+- `text:` — colisiones de texto que quedan. Cero es alcanzable: cinco de
+  los siete circuitos de referencia están a cero. Si aparece un número,
+  casi siempre sobran celdas entre dos símbolos.
 
 ## Delatores de "esquema hecho por ordenador" (y su antídoto)
 
