@@ -1,24 +1,38 @@
+; Copy this file to config.ini and edit it. Every key is optional: with an
+; empty config.ini (or none at all) the server auto-detects a KiCad install
+; and uses the defaults noted below.
+
 [paths]
-# Path to kicad-cli executable. Auto-detected from common install locations if left empty.
+; Path to the kicad-cli executable. Auto-detected if left empty:
+;   Windows  C:\Program Files\KiCad\<version>\bin\kicad-cli.exe
+;   Linux    /usr/bin/kicad-cli, /usr/local/bin/kicad-cli, then PATH
+;   macOS    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
 kicad_cli =
 
-# Path to KiCad global symbol libraries. Auto-derived from kicad_cli if left empty.
-# e.g. C:\Program Files\KiCad\10.0\share\kicad\symbols
+; KiCad's global symbol library directory.
+; Default: derived from kicad_cli (<kicad root>/share/kicad/symbols).
 kicad_symbols =
 
-# Path to KiCad global footprint libraries. Auto-derived from kicad_cli if left empty.
-# e.g. C:\Program Files\KiCad\10.0\share\kicad\footprints
+; KiCad's global footprint library directory.
+; Default: derived from kicad_cli (<kicad root>/share/kicad/footprints).
 kicad_footprints =
 
-# Local directory for downloaded and project libraries. Defaults to "libs".
-libs_root = libs
+; Where downloaded and project-local libraries are kept. Default: "libs".
+; A relative path is resolved against the server executable, because Claude
+; Desktop launches the server from its own working directory.
+libs_root =
 
-# Optional: path to freerouting JAR for auto-routing (not yet implemented).
+; Where generated schematics, SVGs and PDFs are written.
+; Default: <your home directory>/mcp-kicad/output
+output_dir =
+
+; Optional: path to the freerouting JAR for PCB auto-routing (not implemented yet).
 freerouting =
 
 [api_keys]
-# SnapEDA API token for downloading external components. Leave empty to disable.
+; SnapEDA API token, used to download symbols that are not in KiCad's
+; libraries. Leave empty to disable external downloads.
 snapeda =
 
-# PCBWay token (reserved for future use).
+; PCBWay token. Parsed but unused for now.
 pcbway =

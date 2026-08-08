@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -200,12 +201,12 @@ func (e *Env) exportSVG(schPath, outDir, baseName string, schBytes []byte) (*mcp
 }
 
 // svgToPNG converts an SVG file to PNG bytes for inline preview.
-// Tries Edge headless first, then falls back to pure-Go oksvg.
+// Tries a headless Chromium-family browser first, then falls back to pure-Go oksvg.
 // The result is cropped to content (white margins removed).
 func svgToPNG(svgPath string) ([]byte, error) {
 	var data []byte
 	var err error
-	if data, err = svgToPNGEdge(svgPath); err != nil {
+	if data, err = svgToPNGBrowser(svgPath); err != nil {
 		data, err = svgToPNGGo(svgPath, 2400)
 	}
 	if err != nil {
@@ -318,26 +319,21 @@ func cropWhiteMargins(data []byte, padding int) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// svgToPNGEdge uses Microsoft Edge headless mode to render the SVG.
+// svgToPNGBrowser uses a headless Chromium-family browser to render the SVG.
 //
-// Edge's new headless mode (the only one available since 2024) ignores the
+// The new headless mode (the only one available since 2024) ignores the
 // working directory for --screenshot and writes either to user-data-dir or
 // to a path specified via --screenshot=<path>. We pass the exact target
 // file so we know where to read it back.
-func svgToPNGEdge(svgPath string) ([]byte, error) {
-	edgePaths := []string{
-		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-	}
-	var edgeExe string
-	for _, p := range edgePaths {
-		if _, err := os.Stat(p); err == nil {
-			edgeExe = p
-			break
-		}
-	}
-	if edgeExe == "" {
-		return nil, fmt.Errorf("Edge not found")
+//
+// Any Chromium derivative accepts these flags, so Edge, Chrome, Chromium and
+// Brave are interchangeable here. Only the Windows path is verified in
+// practice; the others let a Linux or macOS build render text-accurate
+// previews instead of dropping to the text-less oksvg fallback.
+func svgToPNGBrowser(svgPath string) ([]byte, error) {
+	browserExe := findChromium()
+	if browserExe == "" {
+		return nil, fmt.Errorf("no Chromium-family browser found (tried Edge, Chrome, Chromium, Brave)")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "mcp-kicad-export-*")
@@ -355,7 +351,7 @@ func svgToPNGEdge(svgPath string) ([]byte, error) {
 	// killing this path and dropping every render to the text-less oksvg
 	// fallback. The 2x device scale keeps schematic text sharp after the
 	// white-margin crop.
-	cmd := exec.Command(edgeExe,
+	cmd := exec.Command(browserExe,
 		"--headless=new",
 		"--disable-gpu",
 		"--no-sandbox",
@@ -387,7 +383,50 @@ func svgToPNGEdge(svgPath string) ([]byte, error) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return nil, fmt.Errorf("edge produced no screenshot (err=%v)\n%s", cmdErr, out)
+	return nil, fmt.Errorf("browser produced no screenshot (err=%v)\n%s", cmdErr, out)
+}
+
+// findChromium returns the first Chromium-family browser present on this
+// machine, or "" when none is installed.
+func findChromium() string {
+	var candidates []string
+	switch runtime.GOOS {
+	case "windows":
+		candidates = []string{
+			`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+			`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+			`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+		}
+	case "darwin":
+		candidates = []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+		}
+	default:
+		candidates = []string{
+			"/usr/bin/chromium",
+			"/usr/bin/chromium-browser",
+			"/usr/bin/google-chrome",
+			"/usr/bin/microsoft-edge",
+			"/snap/bin/chromium",
+		}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	// PATH is the last resort: a distro or a manual install can put the
+	// binary anywhere, and on Linux that is the normal case.
+	for _, n := range []string{"chromium", "chromium-browser", "google-chrome", "microsoft-edge", "msedge", "chrome"} {
+		if p, err := exec.LookPath(n); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // svgToPNGGo uses the pure-Go oksvg+rasterx renderer as a fallback.

@@ -1,9 +1,21 @@
+# Build output
 *.exe
+*.exe~
+
+# Local configuration: holds absolute paths for THIS machine.
+# Copy config.ini.example to config.ini and edit it.
+config.ini
+*.bak
+
+# Generated artifacts
 *.pdf
 *.png
 *.jpg
 *.svg
+*-erc.json
+*-drc.json
 output/
 logs/
 nul
 projects/*_e2e/
+/headphone_amp.kicad_sch

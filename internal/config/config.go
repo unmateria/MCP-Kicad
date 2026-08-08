@@ -80,14 +80,48 @@ func Load(path string) *Config {
 	if c.LibsRoot == "" {
 		c.LibsRoot = "libs"
 	}
+	// A relative libs_root is resolved against the executable, not the working
+	// directory: Claude Desktop launches the server from its own directory, so
+	// "libs" would otherwise point somewhere unrelated. The working directory
+	// still wins when it actually holds a libs tree, which is what `go run`
+	// during development gives you.
+	if !filepath.IsAbs(c.LibsRoot) {
+		c.LibsRoot = resolveAgainstExecutable(c.LibsRoot)
+	}
 	if c.OutputDir == "" {
-		c.OutputDir = `C:\claude\outputs`
+		c.OutputDir = defaultOutputDir()
 	}
 	if err := os.MkdirAll(c.OutputDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "config: cannot create output_dir %q: %v\n", c.OutputDir, err)
 	}
 
 	return c
+}
+
+// resolveAgainstExecutable turns a relative path into an absolute one, keeping
+// the working directory's copy when one exists there.
+func resolveAgainstExecutable(rel string) string {
+	if _, err := os.Stat(rel); err == nil {
+		if abs, err := filepath.Abs(rel); err == nil {
+			return abs
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return rel
+	}
+	return filepath.Join(filepath.Dir(exe), rel)
+}
+
+// defaultOutputDir is where generated files land when config.ini says nothing.
+// Under the user's home directory, so it works the same on every platform and
+// needs no privileges.
+func defaultOutputDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "output"
+	}
+	return filepath.Join(home, "mcp-kicad", "output")
 }
 
 // DetectKicadCLI returns the path to kicad-cli if it can be found, or "".
