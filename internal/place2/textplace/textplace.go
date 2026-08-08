@@ -49,6 +49,16 @@ const (
 // further out and the text stops reading as this symbol's own.
 var fieldReach = [3]float64{0, 2.54, 5.08}
 
+// Side indices into each distance's group of eight candidates, in the order
+// fieldCandidates emits them. Only the four cardinal sides are named: a row
+// shares a cardinal side, never a diagonal.
+const (
+	sideRight  = 0
+	sideTop    = 1
+	sideLeft   = 2
+	sideBottom = 3
+)
+
 // Autoplace repositions every visible Reference/Value field and flips
 // colliding net labels so no text overlaps bodies, wires, labels or other
 // text. Mutates sch in place. Returns the number of fields moved + labels
@@ -64,8 +74,9 @@ func Autoplace(sch *sexp.Schematic) (fieldsMoved, labelsFlipped int) {
 
 	obs, _, labels := buildScene(sch, syms)
 
+	side := rowSides(syms, obs, insts)
 	for _, i := range symbolOrder(syms) {
-		fieldsMoved += placeFields(insts[i], syms[i], &obs, foreignBodies(syms, i))
+		fieldsMoved += placeFields(insts[i], syms[i], &obs, foreignBodies(syms, i), side[i])
 	}
 	for _, i := range labelOrder(labels) {
 		if flipLabel(&labels[i], obs) {
@@ -296,7 +307,7 @@ func buildScene(sch *sexp.Schematic, syms []sexp.SchematicSymbol) ([]box, []stri
 // appends the resulting rectangle to obs. Returns how many property nodes were
 // actually rewritten (0 when the block was already good, which is what makes
 // the pass idempotent).
-func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box, foreign []box) int {
+func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box, foreign []box, forcedSide int) int {
 	lines := visibleFields(inst)
 	if len(lines) == 0 {
 		return 0
@@ -327,7 +338,13 @@ func placeFields(inst *sexp.Node, sym sexp.SchematicSymbol, obs *[]box, foreign 
 	h := float64(len(lines))*lineHeight + float64(len(lines)-1)*lineGap
 
 	x1, y1, x2, y2 := metrics.BodyBBox(sym)
-	best := bestCandidate(box{x1, y1, x2, y2}.inflate(), w, h, *obs, foreign)
+	body := box{x1, y1, x2, y2}.inflate()
+	best := bestCandidate(body, w, h, *obs, foreign)
+	if forcedSide >= 0 {
+		if c, ok := clearCandidateOnSide(body, w, h, *obs, forcedSide); ok {
+			best = c
+		}
+	}
 	cx := sexp.Round2((best.x1 + best.x2) / 2)
 	cy := sexp.Round2((best.y1 + best.y2) / 2)
 
@@ -723,4 +740,121 @@ func foreignBodies(syms []sexp.SchematicSymbol, skip int) []box {
 		out = append(out, box{x1, y1, x2, y2}.inflate())
 	}
 	return out
+}
+
+// --- rows of passives -----------------------------------------------------
+
+// A decoupling farm is read as a row, and a row whose labels alternate sides
+// reads as machine output: three references to the left of their capacitor and
+// the fourth above it, because that one happened to have room. Humans put them
+// all on the same side.
+//
+// rowSides returns, per symbol index, the side every member of its row should
+// use, or -1 for "choose freely". A shared side is only imposed when it is
+// clear for EVERY member — consistency is not worth buying with an overlap —
+// so a row hemmed in on all sides falls back to per-symbol choice.
+func rowSides(syms []sexp.SchematicSymbol, obs []box, insts []*sexp.Node) map[int]int {
+	out := make(map[int]int, len(syms))
+	for i := range syms {
+		out[i] = -1
+	}
+	for _, row := range passiveRows(syms) {
+		for _, s := range [4]int{sideRight, sideTop, sideLeft, sideBottom} {
+			if !sideClearForRow(row, s, syms, obs, insts) {
+				continue
+			}
+			for _, i := range row {
+				out[i] = s
+			}
+			break
+		}
+	}
+	return out
+}
+
+// passiveRows groups two-pin symbols that stand side by side on one horizontal
+// band. Two pins keeps it to passives — an IC and a crystal at the same height
+// are not a row anyone reads as one — and the gap limit keeps separate clusters
+// apart. Rows are returned in symbol order, each sorted left to right.
+func passiveRows(syms []sexp.SchematicSymbol) [][]int {
+	const maxGap = 15.0 // mm — a hair over the 5-cell farm spacing
+
+	var idx []int
+	for i, s := range syms {
+		if len(s.Pins) == 2 {
+			idx = append(idx, i)
+		}
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		if syms[idx[a]].Y != syms[idx[b]].Y {
+			return syms[idx[a]].Y < syms[idx[b]].Y
+		}
+		return syms[idx[a]].X < syms[idx[b]].X
+	})
+
+	var rows [][]int
+	var cur []int
+	for _, i := range idx {
+		if len(cur) == 0 {
+			cur = []int{i}
+			continue
+		}
+		prev := syms[cur[len(cur)-1]]
+		s := syms[i]
+		if math.Abs(s.Y-prev.Y) < eps && s.X-prev.X > 0 && s.X-prev.X <= maxGap {
+			cur = append(cur, i)
+			continue
+		}
+		if len(cur) >= 3 {
+			rows = append(rows, cur)
+		}
+		cur = []int{i}
+	}
+	if len(cur) >= 3 {
+		rows = append(rows, cur)
+	}
+	return rows
+}
+
+// sideClearForRow reports whether every member of the row can put its text on
+// the given side without overlapping anything.
+func sideClearForRow(row []int, side int, syms []sexp.SchematicSymbol, obs []box, insts []*sexp.Node) bool {
+	placed := append([]box(nil), obs...)
+	for _, i := range row {
+		lines := visibleFields(insts[i])
+		if len(lines) == 0 {
+			continue
+		}
+		w, h := blockExtent(lines)
+		x1, y1, x2, y2 := metrics.BodyBBox(syms[i])
+		c, ok := clearCandidateOnSide(box{x1, y1, x2, y2}.inflate(), w, h, placed, side)
+		if !ok {
+			return false
+		}
+		placed = append(placed, c)
+	}
+	return true
+}
+
+// clearCandidateOnSide returns the nearest position on one side of the body
+// that overlaps nothing, trying each of fieldReach's distances in turn.
+func clearCandidateOnSide(body box, w, h float64, obs []box, side int) (box, bool) {
+	cands := fieldCandidates(body, w, h)
+	for step := range fieldReach {
+		c := cands[step*8+side]
+		if overlapSum(c, obs, -1) <= eps {
+			return c, true
+		}
+	}
+	return box{}, false
+}
+
+// blockExtent is the width and height a field block will occupy.
+func blockExtent(lines []*sexp.Node) (w, h float64) {
+	for _, p := range lines {
+		if tw := textWidth(propText(p)); tw > w {
+			w = tw
+		}
+	}
+	return w, float64(len(lines))*lineHeight + float64(len(lines)-1)*lineGap
 }

@@ -382,3 +382,48 @@ func TestFieldsStayNearWhenThereIsRoom(t *testing.T) {
 	}
 	t.Errorf("with the near ring blocked the block should back off to clear paper, got %+v", got)
 }
+
+// A row of passives must not label itself inconsistently — three references to
+// the left of their capacitor and the fourth above it, because that one had
+// room, is the signature of a machine. When one side is clear for the whole
+// row, every member uses it.
+func TestRowOfPassivesSharesOneSide(t *testing.T) {
+	// Four capacitors in a row, 12.7 mm apart, nothing else on the sheet.
+	body := libSymbols +
+		symbolDefault("Device:C", "C1", "100n", 50, 50, 0) +
+		symbolDefault("Device:C", "C2", "100n", 62.7, 50, 0) +
+		symbolDefault("Device:C", "C3", "100n", 75.4, 50, 0) +
+		symbolDefault("Device:C", "C4", "10u", 88.1, 50, 0)
+	sch := mustParse(t, wrapSch(body))
+
+	syms := sexp.ReadSymbols(sch)
+	rows := passiveRows(syms)
+	if len(rows) != 1 || len(rows[0]) != 4 {
+		t.Fatalf("expected one row of 4, got %v", rows)
+	}
+
+	Autoplace(sch)
+
+	// Every block must sit on the same side of its own symbol.
+	type offset struct {
+		ref string
+		dx  float64
+		dy  float64
+	}
+	var offsets []offset
+	for _, s := range sexp.ReadSymbols(sch) {
+		b := blockOf(t, sch, s.Reference)
+		offsets = append(offsets, offset{
+			ref: s.Reference,
+			dx:  (b.x1+b.x2)/2 - s.X,
+			dy:  (b.y1+b.y2)/2 - s.Y,
+		})
+	}
+	for _, o := range offsets[1:] {
+		if math.Abs(o.dx-offsets[0].dx) > eps || math.Abs(o.dy-offsets[0].dy) > eps {
+			t.Errorf("%s text sits at offset (%.2f, %.2f) but %s at (%.2f, %.2f) — a row must agree",
+				o.ref, o.dx, o.dy, offsets[0].ref, offsets[0].dx, offsets[0].dy)
+		}
+	}
+	assertNoTextCollisions(t, sch)
+}
