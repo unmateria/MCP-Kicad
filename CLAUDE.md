@@ -64,15 +64,47 @@ FUZZ_OUT=/path/to/dir go test ./internal/tools/ -run TestCompileProperties
 
 ### Canonical circuits
 
-The seven `.design.json` sources in `docs/compiler/` are the reference corpus —
-every pipeline change must be checked against all of them:
+The thirteen `.design.json` sources in `docs/compiler/` are the reference
+corpus — every pipeline change must be checked against all of them:
 
 ```
 demo_full_board   demo_voltage_regulator   demo_mcu_i2c   demo_buck_converter
-led_18650         ne5532_buf               ne555_astable
+led_18650         ne5532_buf               ne555_astable  buck_mc34063a
+contador_9_0      greenhouse_controller    hbridge_dc_motor
+opto_relay_driver psu_12v_dual
 ```
 
 The format spec lives in `internal/tools/design_format.md` — embedded in the binary and served by the `design_guide` tool, because a client with no filesystem cannot read the repo (see docs/compiler/FORMAT.md for why it moved).
+
+### Publishing a release
+
+The repository is public at `github.com/unmateria/MCP-Kicad` under
+**PolyForm Noncommercial 1.0.0** (deliberately not an OSI licence — the owner
+chose it; do not swap it without asking). Publishing is one command:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`.github/workflows/release.yml` then runs the tests, builds five platforms with
+`-trimpath` (which keeps the builder's absolute paths out of the binaries),
+assembles the `.mcpb` bundle from `packaging/manifest.json`, publishes the
+GitHub Release and registers the server with the MCP Registry as
+`io.github.unmateria/mcp-kicad`. No secrets are involved: GitHub OIDC plus the
+automatic `GITHUB_TOKEN`.
+
+Two things that will bite otherwise:
+
+- Pushing anything under `.github/workflows/` needs the `workflow` scope on the
+  `gh` token — `gh auth refresh -h github.com -s workflow`, which is interactive
+  and therefore has to be run by the user.
+- The MCP Registry rejects a `server.json` description over 100 characters, and
+  only after the Release is already published. The workflow now checks the
+  length up front.
+
+**Do not add a `Claude-Session:` trailer to commits in this repo.** The 44
+existing commits were rewritten to purge those URLs before publication, along
+with `config.ini` and a stale binary. `Co-Authored-By` is kept.
 
 ## Architecture
 
