@@ -183,6 +183,14 @@ func Compute(sch *sexp.Schematic) Metrics {
 			if strings.HasPrefix(sym.LibID, "power:") || sym.LibID == "Device:PWR_FLAG" {
 				continue
 			}
+			// Same exception the gate makes: a wire ending on one of THIS
+			// symbol's pins is its connection, not an intrusion. Without it a
+			// connector — whose outline encloses its own pin tips — counts
+			// every wire leaving it, and the report contradicts itself with
+			// "gate: clean" beside "wires_thru_symbol: 2".
+			if wireTouchesOwnPin(sym, s.ax, s.ay, s.bx, s.by) {
+				continue
+			}
 			x1, y1, x2, y2 := BodyBBox(sym)
 			if sexp.SegmentCrossesBox(s.ax, s.ay, s.bx, s.by, x1, y1, x2, y2) {
 				m.WireThruSymbol++
@@ -382,4 +390,16 @@ func parseF(s string) float64 {
 	var v float64
 	_, _ = fmt.Sscanf(s, "%f", &v)
 	return v
+}
+
+// wireTouchesOwnPin reports whether a wire segment ends on a pin of the symbol.
+func wireTouchesOwnPin(sym sexp.SchematicSymbol, ax, ay, bx, by float64) bool {
+	const eps = 0.01
+	for _, p := range sym.Pins {
+		if (math.Abs(p.X-ax) < eps && math.Abs(p.Y-ay) < eps) ||
+			(math.Abs(p.X-bx) < eps && math.Abs(p.Y-by) < eps) {
+			return true
+		}
+	}
+	return false
 }

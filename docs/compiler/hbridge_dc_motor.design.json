@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "project": "hbridge_dc_motor",
+  "sheet": "auto",
+
+  "blocks": [
+    {
+      "name": "control",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x04", "value": "CTRL" }
+      ]
+    },
+    {
+      "name": "branch_a",
+      "symbols": [
+        { "ref": "Q1", "lib": "Transistor_FET:IRF9540N", "value": "IRF9540N", "rot": 180 },
+        { "ref": "R5", "lib": "Device:R", "value": "10k", "rot": 0,
+          "place": { "pin": "2", "at": "Q1.G", "dir": "up", "cells": 3 } },
+        { "ref": "R1", "lib": "Device:R", "value": "100", "rot": 90,
+          "place": { "pin": "1", "at": "Q1.G", "dir": "right", "cells": 4 } },
+        { "ref": "Q3", "lib": "Transistor_FET:IRF540N", "value": "IRF540N", "rot": 0,
+          "place": { "pin": "2", "at": "Q1.D", "dir": "down", "cells": 6 } },
+        { "ref": "R2", "lib": "Device:R", "value": "100", "rot": 90,
+          "place": { "pin": "1", "at": "Q3.G", "dir": "left", "cells": 4 } }
+      ]
+    },
+    {
+      "name": "branch_b",
+      "symbols": [
+        { "ref": "Q2", "lib": "Transistor_FET:IRF9540N", "value": "IRF9540N", "rot": 180, "mirror": true },
+        { "ref": "R6", "lib": "Device:R", "value": "10k", "rot": 0,
+          "place": { "pin": "2", "at": "Q2.G", "dir": "up", "cells": 3 } },
+        { "ref": "R3", "lib": "Device:R", "value": "100", "rot": 90,
+          "place": { "pin": "1", "at": "Q2.G", "dir": "left", "cells": 4 } },
+        { "ref": "Q4", "lib": "Transistor_FET:IRF540N", "value": "IRF540N", "rot": 0, "mirror": true,
+          "place": { "pin": "2", "at": "Q2.D", "dir": "down", "cells": 6 } },
+        { "ref": "R4", "lib": "Device:R", "value": "100", "rot": 90,
+          "place": { "pin": "1", "at": "Q4.G", "dir": "right", "cells": 4 } }
+      ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "C1", "lib": "Device:C", "value": "100u", "rot": 0 },
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x02", "value": "MOTOR", "rot": 0,
+          "place": { "pin": "1", "at": "C1.1", "dir": "right", "cells": 8 } }
+      ]
+    }
+  ],
+
+  "arrange": [ ["control"], ["branch_a", "branch_b"], ["output"] ],
+
+  "nets": {
+    "+12V": ["Q1.S", "Q2.S", "R5.1", "R6.1", "C1.1"],
+    "GND": ["Q3.S", "Q4.S", "C1.2"],
+    "GATE_A_HIGH": ["Q1.G", "R1.1", "R5.2"],
+    "GATE_A_LOW": ["Q3.G", "R2.1"],
+    "GATE_B_HIGH": ["Q2.G", "R3.1", "R6.2"],
+    "GATE_B_LOW": ["Q4.G", "R4.1"],
+    "CTRL_A_HIGH": ["R1.2", "J1.1"],
+    "CTRL_A_LOW": ["R2.2", "J1.2"],
+    "CTRL_B_HIGH": ["R3.2", "J1.3"],
+    "CTRL_B_LOW": ["R4.2", "J1.4"],
+    "OUT_A": ["Q1.D", "Q3.D", "J2.1"],
+    "OUT_B": ["Q2.D", "Q4.D", "J2.2"]
+  },
+
+  "power_nets": { "+12V": "power:+12V", "GND": "power:GND" }
+}

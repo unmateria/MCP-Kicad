@@ -290,9 +290,15 @@ func checkPinContacts(sch *sexp.Schematic, d *compile.Design) error {
 				if pins[i].ref == pins[j].ref || sameNet(pins[i], pins[j]) {
 					continue
 				}
+				// Say what to change, not just that something is wrong. The
+				// author cannot know a symbol's internal pin span from the
+				// source — a resistor at 90° puts its far pin 7.62 mm away —
+				// so "adjust dir/cells" means guess and recompile. One cell
+				// more than the collision separates them.
 				return fmt.Errorf(
 					"%s and %s both sit at (%.2f, %.2f): touching pins are one net in KiCad, "+
-						"but the source declares them apart — change the dir/cells that places them",
+						"but the source declares them apart — add 1 cell to whichever of them you placed "+
+						"with `place` (the far pin of a part sits its own body-length away from the pin you anchored)",
 					label(pins[i]), label(pins[j]), key[0], key[1])
 			}
 		}

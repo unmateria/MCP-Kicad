@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -13,8 +14,10 @@ import (
 
 // SymbolPinsArgs selects one library symbol to inspect.
 type SymbolPinsArgs struct {
-	LibID string `json:"lib_id" jsonschema:"Qualified symbol id, e.g. Timer:NE555P or 4xxx:4029"`
-	Unit  int    `json:"unit,omitempty" jsonschema:"Unit number for multi-unit parts (default 1)"`
+	LibID  string `json:"lib_id" jsonschema:"Qualified symbol id, e.g. Timer:NE555P or 4xxx:4029"`
+	Unit   int    `json:"unit,omitempty" jsonschema:"Unit number for multi-unit parts (default 1)"`
+	Rot    int    `json:"rot,omitempty" jsonschema:"Show the pin directions as they would be with this rotation (0/90/180/270). Default 0."`
+	Mirror bool   `json:"mirror,omitempty" jsonschema:"Show the pin directions as they would be with mirror:true, applied AFTER the rotation."`
 }
 
 // handleSymbolPins lists the pins a symbol really has.
@@ -57,14 +60,23 @@ func (e *Env) handleSymbolPins(_ context.Context, _ *mcp.CallToolRequest, input 
 	sort.SliceStable(pins, func(i, j int) bool { return pinNumLess(pins[i].Number, pins[j].Number) })
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s (unit %d) — %d pins\n\n", input.LibID, unit, len(pins))
+	orient := ""
+	if input.Rot != 0 || input.Mirror {
+		orient = fmt.Sprintf("  [directions as placed with rot %d", input.Rot)
+		if input.Mirror {
+			orient += " + mirror"
+		}
+		orient += "]"
+	}
+	fmt.Fprintf(&sb, "%s (unit %d) — %d pins%s\n\n", input.LibID, unit, len(pins), orient)
 	fmt.Fprintf(&sb, "%-6s %-14s %-12s %s\n", "PIN", "NAME", "TYPE", "SIDE")
 	for _, p := range pins {
 		name := p.Name
 		if name == "" || name == "~" {
 			name = "-"
 		}
-		fmt.Fprintf(&sb, "%-6s %-14s %-12s %s\n", p.Number, name, p.Electrical, pinSide(p.Direction))
+		fmt.Fprintf(&sb, "%-6s %-14s %-12s %s\n", p.Number, name, p.Electrical,
+			pinSide(orientedDir(p.Direction, input.Rot, input.Mirror)))
 	}
 	fmt.Fprintf(&sb, "\nIn a .design.json source write either form: \"%s.%s\" or \"%s.%s\".\n",
 		sym.Reference[:0]+"REF", pins[0].Number, "REF", displayPinName(pins[0]))
@@ -113,4 +125,24 @@ func atoiSafe(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
+}
+
+// orientedDir is where a pin points once the symbol is rotated and (then)
+// mirrored — the same order KiCad applies, verified against kicad-cli.
+//
+// Working this out by hand is a real cost: a session building an H-bridge
+// needed "source up, drain down" from a MOSFET whose native orientation is the
+// reverse, and had to reason through rot 180 followed by a horizontal-only
+// mirror to predict where each of three pins would land. Asking is better than
+// deriving.
+func orientedDir(dir float64, rot int, mirror bool) float64 {
+	d := dir + float64(rot)
+	if mirror {
+		d = 180 - d // (mirror y) flips the X axis of the finished placement
+	}
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
 }
