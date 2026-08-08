@@ -32,6 +32,13 @@ especificación entera, que viene después.
 }
 ```
 
+**Con un integrado, añade siempre `no_connect`.** `"no_connect": { "U1": "unused" }`
+marca de una vez TODOS los pines de U1 que
+no aparecen en `nets` — imprescindible con un microcontrolador, donde media
+docena de patas van al aire y KiCad da un error de ERC por cada una. También
+admite la lista explícita (`"no_connect": ["U1.7", "U1.8"]`), pero enumerar a
+mano catorce pines de un ATmega es trabajo que la palabra `unused` ya hace.
+
 Lo que hay que tener claro de un vistazo, porque es donde todo el mundo se
 equivoca la primera vez:
 

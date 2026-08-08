@@ -250,11 +250,22 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	// rest have been re-placed: anything else reports a number the finished
 	// sheet does not have.
 	if cols := textplace.Collisions(sch); len(cols) > 0 {
-		total := 0.0
+		total, fixable := 0.0, 0
 		for _, c := range cols {
 			total += c.Area
+			if !c.Intrinsic {
+				fixable++
+			}
 		}
-		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2 — worst %s\n", len(cols), total, cols[0])
+		// Split the count. On a 27-symbol board, 33 of 41 collisions were
+		// inside their own packages; one number sent the author hunting all
+		// of them when only eight were worth an iteration.
+		note := ""
+		if fixable < len(cols) {
+			note = fmt.Sprintf(" — %d worth chasing, %d intrinsic to their own symbols", fixable, len(cols)-fixable)
+		}
+		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2%s\n      worst: %s\n",
+			len(cols), total, note, cols[0])
 	}
 
 	if note := fitToSheet(sch); note != "" {

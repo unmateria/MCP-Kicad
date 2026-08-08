@@ -1,0 +1,446 @@
+{
+  "version": 1,
+  "project": "greenhouse_controller",
+  "sheet": "auto",
+  "blocks": [
+    {
+      "name": "power",
+      "symbols": [
+        {
+          "ref": "J1",
+          "lib": "Connector:Conn_01x02_Pin",
+          "value": "12V_IN"
+        },
+        {
+          "ref": "D1",
+          "lib": "Diode:1N4007",
+          "value": "1N4007",
+          "mirror": true,
+          "place": {
+            "pin": "A",
+            "at": "J1.1",
+            "dir": "right",
+            "cells": 4
+          }
+        },
+        {
+          "ref": "C1",
+          "lib": "Device:C",
+          "value": "100u",
+          "place": {
+            "pin": "1",
+            "at": "D1.K",
+            "dir": "down",
+            "cells": 3
+          }
+        },
+        {
+          "ref": "U1",
+          "lib": "Regulator_Linear:L7805",
+          "value": "L7805",
+          "place": {
+            "pin": "IN",
+            "at": "D1.K",
+            "dir": "right",
+            "cells": 5
+          }
+        },
+        {
+          "ref": "C2",
+          "lib": "Device:C",
+          "value": "10u",
+          "place": {
+            "pin": "1",
+            "at": "U1.OUT",
+            "dir": "down",
+            "cells": 3
+          }
+        },
+        {
+          "ref": "R1",
+          "lib": "Device:R",
+          "value": "330",
+          "place": {
+            "pin": "1",
+            "at": "U1.OUT",
+            "dir": "right",
+            "cells": 7
+          }
+        },
+        {
+          "ref": "D2",
+          "lib": "Device:LED",
+          "value": "LED_GREEN",
+          "rot": 90,
+          "place": {
+            "pin": "2",
+            "at": "R1.2",
+            "dir": "down",
+            "cells": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "mcu",
+      "symbols": [
+        {
+          "ref": "U2",
+          "lib": "MCU_Microchip_ATmega:ATmega328-P",
+          "value": "ATmega328P"
+        },
+        {
+          "ref": "Y1",
+          "lib": "Device:Crystal",
+          "value": "16MHz",
+          "place": {
+            "pin": "1",
+            "at": "U2.9",
+            "dir": "right",
+            "cells": 5
+          }
+        },
+        {
+          "ref": "C3",
+          "lib": "Device:C",
+          "value": "22p",
+          "place": {
+            "pin": "1",
+            "at": "Y1.1",
+            "dir": "down",
+            "cells": 3
+          }
+        },
+        {
+          "ref": "C4",
+          "lib": "Device:C",
+          "value": "22p",
+          "place": {
+            "pin": "1",
+            "at": "Y1.2",
+            "dir": "down",
+            "cells": 3
+          }
+        },
+        {
+          "ref": "C5",
+          "lib": "Device:C",
+          "value": "100n",
+          "place": {
+            "pin": "2",
+            "at": "U2.7",
+            "dir": "up",
+            "cells": 6
+          }
+        },
+        {
+          "ref": "C6",
+          "lib": "Device:C",
+          "value": "100n",
+          "place": {
+            "pin": "2",
+            "at": "C5.2",
+            "dir": "right",
+            "cells": 5
+          }
+        },
+        {
+          "ref": "R2",
+          "lib": "Device:R",
+          "value": "10k",
+          "place": {
+            "pin": "2",
+            "at": "U2.1",
+            "dir": "right",
+            "cells": 11
+          }
+        }
+      ]
+    },
+    {
+      "name": "icsp",
+      "symbols": [
+        {
+          "ref": "J2",
+          "lib": "Connector:Conn_01x06_Pin",
+          "value": "ICSP",
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "name": "sensor1",
+      "symbols": [
+        {
+          "ref": "J3",
+          "lib": "Connector:Conn_01x03_Pin",
+          "value": "SENSOR1"
+        },
+        {
+          "ref": "C7",
+          "lib": "Device:C",
+          "value": "100n",
+          "place": {
+            "pin": "1",
+            "at": "J3.3",
+            "dir": "right",
+            "cells": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "sensor2",
+      "symbols": [
+        {
+          "ref": "J4",
+          "lib": "Connector:Conn_01x03_Pin",
+          "value": "SENSOR2"
+        },
+        {
+          "ref": "C8",
+          "lib": "Device:C",
+          "value": "100n",
+          "place": {
+            "pin": "1",
+            "at": "J4.3",
+            "dir": "right",
+            "cells": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "valve1",
+      "symbols": [
+        {
+          "ref": "R3",
+          "lib": "Device:R",
+          "value": "2.2k",
+          "rot": 90
+        },
+        {
+          "ref": "Q1",
+          "lib": "Transistor_BJT:Q_NPN_BCE",
+          "value": "2N2222",
+          "place": {
+            "pin": "B",
+            "at": "R3.2",
+            "dir": "right",
+            "cells": 4
+          }
+        },
+        {
+          "ref": "D3",
+          "lib": "Diode:1N4007",
+          "value": "1N4007",
+          "rot": 270,
+          "place": {
+            "pin": "A",
+            "at": "Q1.C",
+            "dir": "up",
+            "cells": 4
+          }
+        },
+        {
+          "ref": "J5",
+          "lib": "Connector:Conn_01x02_Pin",
+          "value": "VALVE1",
+          "mirror": true,
+          "place": {
+            "pin": "1",
+            "at": "Q1.C",
+            "dir": "right",
+            "cells": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "valve2",
+      "symbols": [
+        {
+          "ref": "R4",
+          "lib": "Device:R",
+          "value": "2.2k",
+          "rot": 90
+        },
+        {
+          "ref": "Q2",
+          "lib": "Transistor_BJT:Q_NPN_BCE",
+          "value": "2N2222",
+          "place": {
+            "pin": "B",
+            "at": "R4.2",
+            "dir": "right",
+            "cells": 4
+          }
+        },
+        {
+          "ref": "D4",
+          "lib": "Diode:1N4007",
+          "value": "1N4007",
+          "rot": 270,
+          "place": {
+            "pin": "A",
+            "at": "Q2.C",
+            "dir": "up",
+            "cells": 4
+          }
+        },
+        {
+          "ref": "J6",
+          "lib": "Connector:Conn_01x02_Pin",
+          "value": "VALVE2",
+          "mirror": true,
+          "place": {
+            "pin": "1",
+            "at": "Q2.C",
+            "dir": "right",
+            "cells": 6
+          }
+        }
+      ]
+    }
+  ],
+  "arrange": [
+    [
+      "power"
+    ],
+    [
+      "mcu",
+      "icsp"
+    ],
+    [
+      "sensor1",
+      "sensor2"
+    ],
+    [
+      "valve1",
+      "valve2"
+    ]
+  ],
+  "nets": {
+    "VIN_RAW": [
+      "J1.1",
+      "D1.A"
+    ],
+    "XTAL1": [
+      "U2.9",
+      "Y1.1",
+      "C3.1"
+    ],
+    "XTAL2": [
+      "U2.10",
+      "Y1.2",
+      "C4.1"
+    ],
+    "RESET_N": [
+      "U2.1",
+      "R2.2",
+      "J2.5"
+    ],
+    "MISO": [
+      "U2.18",
+      "J2.1"
+    ],
+    "SCK": [
+      "U2.19",
+      "J2.3"
+    ],
+    "MOSI": [
+      "U2.17",
+      "J2.4"
+    ],
+    "ADC0": [
+      "U2.23",
+      "J3.3",
+      "C7.1"
+    ],
+    "ADC1": [
+      "U2.24",
+      "J4.3",
+      "C8.1"
+    ],
+    "VALVE1_CTRL": [
+      "U2.11",
+      "R3.1"
+    ],
+    "VALVE2_CTRL": [
+      "U2.12",
+      "R4.1"
+    ],
+    "_Q1_BASE": [
+      "R3.2",
+      "Q1.B"
+    ],
+    "_Q2_BASE": [
+      "R4.2",
+      "Q2.B"
+    ],
+    "_VALVE1_SW": [
+      "Q1.C",
+      "J5.2",
+      "D3.A"
+    ],
+    "_VALVE2_SW": [
+      "Q2.C",
+      "J6.2",
+      "D4.A"
+    ],
+    "_LED_A": [
+      "R1.2",
+      "D2.2"
+    ],
+    "GND": [
+      "J1.2",
+      "U1.GND",
+      "C1.2",
+      "C2.2",
+      "D2.1",
+      "C5.1",
+      "C6.1",
+      "C3.2",
+      "C4.2",
+      "U2.8",
+      "U2.22",
+      "J3.2",
+      "C7.2",
+      "J4.2",
+      "C8.2",
+      "Q1.E",
+      "Q2.E",
+      "J2.6"
+    ],
+    "+5V": [
+      "U1.OUT",
+      "C2.1",
+      "R1.1",
+      "U2.7",
+      "U2.20",
+      "C5.2",
+      "C6.2",
+      "R2.1",
+      "J3.1",
+      "J4.1",
+      "J2.2"
+    ],
+    "+12V": [
+      "D1.K",
+      "U1.IN",
+      "C1.1",
+      "J5.1",
+      "J6.1",
+      "D3.K",
+      "D4.K"
+    ]
+  },
+  "power_nets": {
+    "GND": "power:GND",
+    "+5V": "power:+5V",
+    "+12V": "power:+12V"
+  },
+  "no_connect": {
+    "U2": "unused"
+  }
+}
