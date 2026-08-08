@@ -80,6 +80,13 @@ jobs:
               "v%s/mcp-kicad.mcpb" % version
           )
           pkg["fileSha256"] = digest
+          # The registry rejects a description over 100 characters with a 422
+          # that only shows up after the release is already published.
+          if len(d["description"]) > 100:
+              raise SystemExit(
+                  "server.json description is %d characters, the registry allows 100"
+                  % len(d["description"])
+              )
           p.write_text(json.dumps(d, indent=2) + "\n")
           print(p.read_text())
           PY
@@ -89,16 +96,20 @@ jobs:
         # download URL in server.json actually resolves.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Idempotent: a re-run after a later step failed must not stop at "a
+        # release with that tag already exists".
         run: |
-          gh release create "v$VERSION" \
-            --title "v$VERSION" \
-            --generate-notes \
-            dist/mcp-kicad-windows-amd64.exe \
-            dist/mcp-kicad-linux-amd64 \
-            dist/mcp-kicad-linux-arm64 \
-            dist/mcp-kicad-darwin-amd64 \
-            dist/mcp-kicad-darwin-arm64 \
-            dist/mcp-kicad.mcpb
+          ASSETS="dist/mcp-kicad-windows-amd64.exe
+                  dist/mcp-kicad-linux-amd64
+                  dist/mcp-kicad-linux-arm64
+                  dist/mcp-kicad-darwin-amd64
+                  dist/mcp-kicad-darwin-arm64
+                  dist/mcp-kicad.mcpb"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" $ASSETS --clobber
+          else
+            gh release create "v$VERSION" --title "v$VERSION" --generate-notes $ASSETS
+          fi
 
       - name: Install mcp-publisher
         run: |
