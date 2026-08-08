@@ -21,11 +21,7 @@ func TestRenderSchematicPNG(t *testing.T) {
 		}
 	}
 
-	repoRoot, _ := filepath.Abs("../..")
-	schPath := filepath.Join(repoRoot, "projects", "inv_amp_v2", "inv_amp.kicad_sch")
-	if _, err := os.Stat(schPath); err != nil {
-		t.Skipf("test schematic %s not present; skipping", schPath)
-	}
+	schPath := filepath.Join("testdata", "render_fixture.kicad_sch")
 
 	tmp, err := os.MkdirTemp("", "render-png-*")
 	if err != nil {
