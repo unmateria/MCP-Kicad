@@ -124,6 +124,10 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		}
 	}
 
+	if note := checkHasTerminals(d); note != "" {
+		fmt.Fprint(&sb, note)
+	}
+
 	if err := checkPowerRails(d); err != nil {
 		return nil, "", nil, err
 	}

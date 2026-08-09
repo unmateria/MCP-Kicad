@@ -402,6 +402,36 @@ func dropOrphanPowerSymbols(sch *sexp.Schematic) int {
 	return removed
 }
 
+// checkHasTerminals reports a design that gives the reader no way in and no
+// way out. It is a NOTE, never an error: a fragment meant to be pasted into a
+// bigger sheet is a legitimate thing to compile.
+//
+// It exists because of the one criticism from the KiCad forum thread that no
+// automated check could have raised: "I could not tell from the generated
+// schematic what this circuit did. OTOH, the function of TI's schematic was
+// instantly obvious to me." Measured afterwards, seven of the thirteen designs
+// in docs/compiler had no terminal at all. Wire quality was never the problem
+// there — a drawing whose edges are bare net tags does not say what it is FOR,
+// however tidily it is wired.
+//
+// A terminal is a connector or a self-contained source; a design built around
+// a battery and a LED needs neither, and says so by having the battery.
+func checkHasTerminals(d *compile.Design) string {
+	for _, b := range d.Blocks {
+		for _, s := range b.Symbols {
+			switch {
+			case strings.HasPrefix(s.Lib, "Connector"),
+				strings.HasPrefix(s.Lib, "Device:Battery"),
+				strings.HasPrefix(s.Lib, "Device:Solar_Cell"):
+				return ""
+			}
+		}
+	}
+	return "  note: no connector or source symbol — nothing shows where the signal enters or\n" +
+		"        leaves. Readers judge a schematic by its edges: give it a Connector for the\n" +
+		"        input and one for the output unless this is a fragment of a larger sheet.\n"
+}
+
 // checkPowerRails refuses two declared power nets that point at the same power
 // symbol.
 //
