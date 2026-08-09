@@ -25,14 +25,15 @@ func main() {
 
 	cfg := config.Load(configPath)
 
-	var snapeda *parts.SnapEDAClient
-	if cfg.SnapEDA != "" && cfg.SnapEDA != "YOUR_TOKEN" {
-		snapeda = parts.NewSnapEDAClient(cfg.SnapEDA)
-	}
-
 	anthropicKey := cfg.Anthropic
 	if anthropicKey == "YOUR_TOKEN" {
 		anthropicKey = ""
+	}
+
+	// Imported parts live under libs_root and that tree is not versioned, so a
+	// fresh checkout has none of it. Create it before any tool can look there.
+	if err := parts.EnsureTree(cfg.LibsRoot); err != nil {
+		log.Printf("warning: %v", err)
 	}
 
 	env := &tools.Env{
@@ -40,7 +41,9 @@ func main() {
 		KicadCLI:        cfg.KicadCLI,
 		KicadSymbols:    cfg.KicadSymbols,
 		KicadFootprints: cfg.KicadFootprints,
-		SnapEDA:         snapeda,
+		Mouser:          cfg.Mouser,
+		DigiKeyID:       cfg.DigiKeyID,
+		DigiKeySecret:   cfg.DigiKeySecret,
 		AnthropicKey:    anthropicKey,
 		OutputDir:       cfg.OutputDir,
 		ConfigPath:      cfg.ConfigPath,
@@ -55,6 +58,7 @@ func main() {
 	env.Server = server
 
 	tools.RegisterComponentTools(server, env)
+	tools.RegisterImportTools(server, env)
 	tools.RegisterSchematicTools(server, env)
 	tools.RegisterPCBTools(server, env)
 	tools.RegisterValidationTools(server, env)

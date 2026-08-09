@@ -804,12 +804,18 @@ func countUnitsInLib(sch *sexp.Schematic, libID string) int {
 	return 1
 }
 
-// embedLibSymbol embeds the KiCad global symbol definition into lib_symbols.
-// If the symbol uses (extends "Parent"), the parent is embedded first.
+// symbolSearchPath is the ordered list of directories this server resolves a
+// library name against: imported parts first, then the KiCad installation.
+// Every consumer of a library symbol goes through embedLibSymbol, so this one
+// list is what makes an imported part usable by the compiler, the templates
+// and symbol_pins at once.
+func (e *Env) symbolSearchPath() []string {
+	return parts.SymbolSearchPath(e.LibsRoot, e.KicadSymbols)
+}
+
+// embedLibSymbol embeds a library symbol definition into lib_symbols.
+// If the symbol uses (extends "Parent"), the parent chain is flattened in.
 func (e *Env) embedLibSymbol(sch *sexp.Schematic, libID string) error {
-	if e.KicadSymbols == "" {
-		return fmt.Errorf("KicadSymbols path not configured")
-	}
 	if sch.HasLibSymbol(libID) {
 		return nil // already embedded
 	}
@@ -818,7 +824,14 @@ func (e *Env) embedLibSymbol(sch *sexp.Schematic, libID string) error {
 		return fmt.Errorf("invalid lib_id: %q", libID)
 	}
 	libName, partName := ps[0], ps[1]
-	symFile := filepath.Join(e.KicadSymbols, libName+".kicad_sym")
+	searchPath := e.symbolSearchPath()
+	if len(searchPath) == 0 {
+		return fmt.Errorf("no symbol library directory configured (libs_root and kicad_symbols are both empty)")
+	}
+	symFile, _, ok := parts.FindSymbolLib(searchPath, libName)
+	if !ok {
+		return fmt.Errorf("symbol library %q not found in %s", libName, strings.Join(searchPath, string(os.PathListSeparator)))
+	}
 	// ExtractSymbolDefWithParents returns [grandparent, parent, ..., symbol]
 	// so embedding in order is safe.
 	defs, err := sexp.ExtractSymbolDefWithParents(symFile, libName, partName)

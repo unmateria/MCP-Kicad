@@ -11,7 +11,8 @@ import (
 
 // ComponentResult holds a found component location.
 type ComponentResult struct {
-	// Source is "local-official", "local-alternate", or "snapeda".
+	// Source is "imported", "local-official", "local-alternate",
+	// "local-downloaded" or "kicad-global".
 	Source string
 	// Path is the absolute path to the file (symbol or footprint).
 	Path string
@@ -21,11 +22,11 @@ type ComponentResult struct {
 	PartName string
 }
 
-// LocalSearch searches for a component in the locally cloned KiCad libraries.
+// LocalSearch searches for a component in every symbol library under libsRoot:
+// imported parts first, then any cloned KiCad tree, then the legacy download
+// directory.
 //
-// libsRoot should be the path to the libs/ directory (e.g. "libs/kicad-official/kicad-symbols").
-// query is in the form "LibName:PartName" (e.g. "Device:R") for symbols,
-// or just a footprint name for footprints.
+// query is in the form "LibName:PartName" (e.g. "Device:R").
 func LocalSearch(libsRoot, query string) (*ComponentResult, error) {
 	parts := strings.SplitN(query, ":", 2)
 	if len(parts) != 2 {
@@ -33,26 +34,12 @@ func LocalSearch(libsRoot, query string) (*ComponentResult, error) {
 	}
 	libName, partName := parts[0], parts[1]
 
-	// Search in kicad-symbols (.kicad_sym files).
-	symPath := filepath.Join(libsRoot, "kicad-official", "kicad-symbols", libName+".kicad_sym")
-	if fileExists(symPath) {
-		if containsPart(symPath, partName) {
+	for _, dir := range SymbolSearchPath(libsRoot, "") {
+		symPath := filepath.Join(dir, libName+".kicad_sym")
+		if fileExists(symPath) && containsPart(symPath, partName) {
 			return &ComponentResult{
-				Source:   "local-official",
+				Source:   SourceLabel(libsRoot, dir),
 				Path:     symPath,
-				LibName:  libName,
-				PartName: partName,
-			}, nil
-		}
-	}
-
-	// Search in alternate library if present.
-	altPath := filepath.Join(libsRoot, "alternate", libName+".kicad_sym")
-	if fileExists(altPath) {
-		if containsPart(altPath, partName) {
-			return &ComponentResult{
-				Source:   "local-alternate",
-				Path:     altPath,
 				LibName:  libName,
 				PartName: partName,
 			}, nil
@@ -72,14 +59,16 @@ func FootprintSearch(libsRoot, query string) (*ComponentResult, error) {
 	}
 	libName, fpName := parts[0], parts[1]
 
-	fpPath := filepath.Join(libsRoot, "kicad-official", "kicad-footprints", libName+".pretty", fpName+".kicad_mod")
-	if fileExists(fpPath) {
-		return &ComponentResult{
-			Source:   "local-official",
-			Path:     fpPath,
-			LibName:  libName,
-			PartName: fpName,
-		}, nil
+	for _, dir := range FootprintSearchPath(libsRoot, "") {
+		fpPath := filepath.Join(dir, libName+".pretty", fpName+".kicad_mod")
+		if fileExists(fpPath) {
+			return &ComponentResult{
+				Source:   SourceLabel(libsRoot, dir),
+				Path:     fpPath,
+				LibName:  libName,
+				PartName: fpName,
+			}, nil
+		}
 	}
 
 	return nil, fmt.Errorf("locallibs: footprint %q not found in local libraries", query)
@@ -131,7 +120,13 @@ func ListLibraries(globalSymbolsDir, filter string) ([]string, error) {
 // the given substring (case-insensitive). libName is e.g. "Device".
 // Returns results as "LibName:PartName" strings.
 func SearchSymbols(globalSymbolsDir, libName, partFilter string) ([]string, error) {
-	symPath := filepath.Join(globalSymbolsDir, libName+".kicad_sym")
+	return SearchSymbolsInFile(filepath.Join(globalSymbolsDir, libName+".kicad_sym"), libName, partFilter)
+}
+
+// SearchSymbolsInFile is SearchSymbols against an explicit .kicad_sym path, so
+// a caller that already resolved a library through the search path does not
+// have to guess which directory it came from.
+func SearchSymbolsInFile(symPath, libName, partFilter string) ([]string, error) {
 	data, err := os.ReadFile(symPath)
 	if err != nil {
 		return nil, fmt.Errorf("locallibs: cannot read %s: %w", symPath, err)
@@ -178,10 +173,34 @@ func SearchSymbols(globalSymbolsDir, libName, partFilter string) ([]string, erro
 // "capacitor" alone still surfaces Device:C_Polarized, which is what the
 // author wanted.
 func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []string {
-	entries, err := os.ReadDir(globalSymbolsDir)
-	if err != nil {
-		return nil
+	hits := FuzzySearchDirs([]string{globalSymbolsDir}, partFilter, maxResults)
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		entry := h.LibID
+		if h.Description != "" {
+			entry += "  — " + h.Description
+		}
+		out = append(out, entry)
 	}
+	return out
+}
+
+// SymbolHit is one ranked result of a fuzzy symbol search.
+type SymbolHit struct {
+	LibID       string // "Device:R"
+	LibName     string
+	PartName    string
+	Description string
+	Keywords    string
+	Dir         string // directory the .kicad_sym file was found in
+	Score       int
+}
+
+// FuzzySearchDirs runs the ranking above across several library directories at
+// once, earliest directory winning when the same LibName:PartName appears in
+// more than one — which is exactly what happens when an imported library
+// shadows an installed one.
+func FuzzySearchDirs(dirs []string, partFilter string, maxResults int) []SymbolHit {
 	query := strings.ToLower(strings.TrimSpace(partFilter))
 	if query == "" {
 		return nil
@@ -197,11 +216,15 @@ func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []st
 	type hit struct {
 		id    string
 		desc  string
+		keys  string
 		lib   string
+		part  string
+		dir   string
 		score int
 		nlen  int
 	}
 	var hits []hit
+	var curDir string
 
 	consider := func(lib, name, desc, keywords string) {
 		lname := strings.ToLower(name)
@@ -244,48 +267,66 @@ func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []st
 		if score == 0 {
 			return
 		}
-		hits = append(hits, hit{id: lib + ":" + name, desc: desc, lib: lib, score: score, nlen: len(name)})
+		hits = append(hits, hit{
+			id: lib + ":" + name, desc: desc, keys: keywords,
+			lib: lib, part: name, dir: curDir, score: score, nlen: len(name),
+		})
 	}
 
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".kicad_sym") {
+	seenLib := map[string]bool{} // LibName already read from an earlier dir
+	for _, dir := range dirs {
+		if dir == "" {
 			continue
 		}
-		libName := strings.TrimSuffix(e.Name(), ".kicad_sym")
-		data, err := os.ReadFile(filepath.Join(globalSymbolsDir, e.Name()))
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
+		curDir = dir
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".kicad_sym") {
+				continue
+			}
+			libName := strings.TrimSuffix(e.Name(), ".kicad_sym")
+			if seenLib[libName] {
+				continue
+			}
+			seenLib[libName] = true
+			data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				continue
+			}
 
-		name, desc, keywords := "", "", ""
-		flush := func() {
-			if name != "" {
-				consider(libName, name, desc, keywords)
-			}
-			name, desc, keywords = "", "", ""
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, `(symbol "`) {
-				n := quotedAfter(line, `(symbol "`)
-				if n == "" || isSubUnit(n) {
-					continue // sub-unit: keep accumulating for the parent
+			name, desc, keywords := "", "", ""
+			flush := func() {
+				if name != "" {
+					consider(libName, name, desc, keywords)
 				}
-				flush()
-				name = n
-				continue
+				name, desc, keywords = "", "", ""
 			}
-			if name == "" {
-				continue
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, `(symbol "`) {
+					n := quotedAfter(line, `(symbol "`)
+					if n == "" || isSubUnit(n) {
+						continue // sub-unit: keep accumulating for the parent
+					}
+					flush()
+					name = n
+					continue
+				}
+				if name == "" {
+					continue
+				}
+				if strings.HasPrefix(line, `(property "Description"`) {
+					desc = propertyValue(line)
+				}
+				if strings.HasPrefix(line, `(property "ki_keywords"`) {
+					keywords = propertyValue(line)
+				}
 			}
-			if strings.HasPrefix(line, `(property "Description"`) {
-				desc = propertyValue(line)
-			}
-			if strings.HasPrefix(line, `(property "ki_keywords"`) {
-				keywords = propertyValue(line)
-			}
+			flush()
 		}
-		flush()
 	}
 
 	// Best score first; then the shorter name, because the generic part of a
@@ -308,17 +349,21 @@ func FuzzySearchGlobal(globalSymbolsDir, partFilter string, maxResults int) []st
 	// capacitor" returned C and C_US and hid C_Polarized, the one wanted.
 	const perLib = 3
 	countByLib := map[string]int{}
-	var out []string
+	var out []SymbolHit
 	for _, h := range hits {
 		if countByLib[h.lib] >= perLib {
 			continue
 		}
 		countByLib[h.lib]++
-		entry := h.id
-		if h.desc != "" {
-			entry += "  — " + h.desc
-		}
-		out = append(out, entry)
+		out = append(out, SymbolHit{
+			LibID:       h.id,
+			LibName:     h.lib,
+			PartName:    h.part,
+			Description: h.desc,
+			Keywords:    h.keys,
+			Dir:         h.dir,
+			Score:       h.score,
+		})
 		if len(out) >= maxResults {
 			break
 		}

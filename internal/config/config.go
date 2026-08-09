@@ -17,7 +17,9 @@ type Config struct {
 	KicadFootprints string
 	LibsRoot        string
 	Freerouting     string
-	SnapEDA         string
+	Mouser          string // optional; distributor metadata only, no CAD files
+	DigiKeyID       string // optional; OAuth2 client_credentials pair with DigiKeySecret
+	DigiKeySecret   string
 	PCBWay          string
 	Anthropic       string // optional API key for visual ranking; empty disables capa B
 	OutputDir       string // directory where generated files are written
@@ -55,7 +57,9 @@ func Load(path string) *Config {
 		KicadFootprints: get(cfg, "paths", "kicad_footprints"),
 		LibsRoot:        get(cfg, "paths", "libs_root"),
 		Freerouting:     get(cfg, "paths", "freerouting"),
-		SnapEDA:         get(cfg, "api_keys", "snapeda"),
+		Mouser:          apiKey(get(cfg, "api_keys", "mouser")),
+		DigiKeyID:       apiKey(get(cfg, "api_keys", "digikey_client_id")),
+		DigiKeySecret:   apiKey(get(cfg, "api_keys", "digikey_client_secret")),
 		PCBWay:          get(cfg, "api_keys", "pcbway"),
 		Anthropic:       get(cfg, "api_keys", "anthropic"),
 		OutputDir:       get(cfg, "paths", "output_dir"),
@@ -96,6 +100,15 @@ func Load(path string) *Config {
 	}
 
 	return c
+}
+
+// apiKey normalises an optional credential: the placeholder shipped in
+// config.ini.example counts as "not configured", not as a token to send.
+func apiKey(v string) string {
+	if v == "YOUR_TOKEN" {
+		return ""
+	}
+	return v
 }
 
 // resolveAgainstExecutable turns a relative path into an absolute one, keeping

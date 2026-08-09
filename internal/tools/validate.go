@@ -13,6 +13,7 @@ import (
 	"gopkg.in/ini.v1"
 
 	"mcp-kicad/internal/kicadcli"
+	"mcp-kicad/internal/parts"
 )
 
 // outputDirMu guards concurrent access to env.OutputDir and config writes.
@@ -85,7 +86,7 @@ func (e *Env) handleGetProjectInfo(_ context.Context, _ *mcp.CallToolRequest, _ 
 		logPath = e.Log.Path()
 	}
 	info := fmt.Sprintf(
-		"MCP-KiCad server\nworking_dir: %s\noutput_dir: %s\nlog_file: %s\nlibs root: %s\nkicad-cli: %s\nkicad-symbols: %s\nkicad-footprints: %s\nSnapEDA configured: %v\nconfig.ini: %s",
+		"MCP-KiCad server\nworking_dir: %s\noutput_dir: %s\nlog_file: %s\nlibs root: %s\nkicad-cli: %s\nkicad-symbols: %s\nkicad-footprints: %s\nimported symbols: %s\nimported footprints: %s\ndistributor keys: mouser=%v digikey=%v\nconfig.ini: %s",
 		cwd,
 		e.OutputDir,
 		logPath,
@@ -93,7 +94,10 @@ func (e *Env) handleGetProjectInfo(_ context.Context, _ *mcp.CallToolRequest, _ 
 		e.KicadCLI,
 		e.KicadSymbols,
 		e.KicadFootprints,
-		e.SnapEDA != nil,
+		parts.ImportedSymbolLib(e.LibsRoot),
+		parts.ImportedFootprintLib(e.LibsRoot),
+		e.Mouser != "",
+		e.DigiKeyID != "" && e.DigiKeySecret != "",
 		e.ConfigPath,
 	)
 	return toolText(info), nil, nil

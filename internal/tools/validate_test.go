@@ -20,30 +20,35 @@ func TestHandleValidateDesign_NoPaths(t *testing.T) {
 	}
 }
 
-func TestHandleGetProjectInfo_NoSnapEDA(t *testing.T) {
-	env := &Env{LibsRoot: "libs", KicadCLI: "/path/to/kicad-cli", SnapEDA: nil}
+func TestHandleGetProjectInfo_NoDistributorKeys(t *testing.T) {
+	env := &Env{LibsRoot: "libs", KicadCLI: "/path/to/kicad-cli"}
 	res, _, err := env.handleGetProjectInfo(context.Background(), nil, getProjectInfoInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := resultText(t, res)
-	if !strings.Contains(text, "false") {
-		t.Errorf("expected SnapEDA configured=false in response, got: %q", text)
+	if !strings.Contains(text, "mouser=false") || !strings.Contains(text, "digikey=false") {
+		t.Errorf("expected both distributor keys reported as absent, got: %q", text)
+	}
+	if !strings.Contains(text, parts.ImportedLib) {
+		t.Errorf("expected the imported library path in the response, got: %q", text)
 	}
 }
 
-func TestHandleGetProjectInfo_WithSnapEDA(t *testing.T) {
+func TestHandleGetProjectInfo_WithDistributorKeys(t *testing.T) {
 	env := &Env{
-		LibsRoot: "libs",
-		KicadCLI: "/path/to/kicad-cli",
-		SnapEDA:  parts.NewSnapEDAClient("mytoken"),
+		LibsRoot:      "libs",
+		KicadCLI:      "/path/to/kicad-cli",
+		Mouser:        "mykey",
+		DigiKeyID:     "id",
+		DigiKeySecret: "secret",
 	}
 	res, _, err := env.handleGetProjectInfo(context.Background(), nil, getProjectInfoInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := resultText(t, res)
-	if !strings.Contains(text, "true") {
-		t.Errorf("expected SnapEDA configured=true in response, got: %q", text)
+	if !strings.Contains(text, "mouser=true") || !strings.Contains(text, "digikey=true") {
+		t.Errorf("expected both distributor keys reported as present, got: %q", text)
 	}
 }

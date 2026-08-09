@@ -1078,6 +1078,41 @@ func ExtractSymbolDefWithParents(symFilePath, libName, partName string) ([]*Node
 	return []*Node{qualifySymbolDef(raw, libName)}, nil
 }
 
+// FlattenLibSymbol resolves an (extends …) chain within one library's symbol
+// set and returns a self-contained symbol whose name stays UNQUALIFIED.
+//
+// This is the .kicad_sym counterpart of ExtractSymbolDefWithParents, which
+// qualifies names as "Lib:Part" because that is what a schematic's lib_symbols
+// block wants. A library FILE wants the bare name, and copying a symbol into
+// one without flattening loses every pin: 53.8% of KiCad's official symbols
+// carry their geometry only in an ancestor.
+//
+// libSymbols is the child list of a (kicad_symbol_lib …) node.
+func FlattenLibSymbol(libSymbols []*Node, partName string) (*Node, error) {
+	index := make(map[string]*Node, len(libSymbols))
+	for _, d := range libSymbols {
+		if d.Head() == "symbol" {
+			index[StringValue(d, 1)] = d
+		}
+	}
+	raw, err := resolveRawChain(index, partName)
+	if err != nil {
+		return nil, fmt.Errorf("sexp: %w", err)
+	}
+	clone := deepClone(raw)
+	// A flattened symbol carries its ancestors' geometry, so the reference
+	// would now be a dangling pointer to a parent that is not coming along.
+	filtered := clone.Children[:0]
+	for _, c := range clone.Children {
+		if c.Head() == "extends" {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+	clone.Children = filtered
+	return clone, nil
+}
+
 // resolveRawChain recursively resolves an (extends ...) chain, returning a raw
 // (unqualified) node with all ancestor pin geometry merged in.
 // All names stay unqualified so sub-unit renaming uses correct prefix lengths.

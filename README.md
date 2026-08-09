@@ -41,7 +41,7 @@ If a connection cannot be drawn cleanly, it degrades to a net label rather than 
 ### What it does not do
 
 - **No PCB work.** No board layout, no copper routing, no Gerbers. Schematics only, on purpose — a PCB from a bad schematic is worthless.
-- **No component invention.** It uses KiCad's installed symbol libraries. Parts that aren't there can be fetched from SnapEDA if you supply an API key.
+- **No component invention.** It uses KiCad's installed symbol libraries, and `find_part` / `import_part` bring in what is missing from external KiCad libraries — verified before installation. If a part exists nowhere, it says so instead of drawing one.
 - **Not a simulator.** It draws what you describe; it does not tell you whether your circuit is a good idea.
 
 ---
@@ -231,10 +231,16 @@ If your install is somewhere unusual, or you want to change where files are writ
 [paths]
 kicad_cli  = /opt/kicad/bin/kicad-cli
 output_dir = /home/you/schematics
+libs_root  = /home/you/mcp-kicad-libs
 
 [api_keys]
-snapeda =
+mouser                =
+digikey_client_id     =
+digikey_client_secret =
 ```
+
+The API keys are optional and buy metadata only — no distributor serves CAD
+files. Every source that actually carries symbols and footprints needs no key.
 
 Generated files default to `<your home>/mcp-kicad/output`.
 
@@ -242,13 +248,13 @@ Generated files default to `<your home>/mcp-kicad/output`.
 
 ## Tools
 
-Thirty-two tools are exposed. In practice Claude drives almost everything through `compile_schematic`; the rest exist for inspection and for repairing an existing file.
+Thirty-three tools are exposed. In practice Claude drives almost everything through `compile_schematic`; the rest exist for inspection and for repairing an existing file.
 
 **Designing**
 `compile_schematic` · `design_guide` · `get_design_context` · `kicad_workflow_help` · `apply_template` · `list_templates`
 
 **Finding parts**
-`check_component_existence` · `symbol_pins` · `list_symbol_libraries` · `fetch_external_part` · `register_library`
+`find_part` · `import_part` · `check_component_existence` · `symbol_pins` · `list_symbol_libraries` · `register_library`
 
 **Reading a schematic**
 `read_schematic` · `get_connectivity_summary` · `cluster_components` · `layout_metrics`
@@ -261,6 +267,50 @@ Thirty-two tools are exposed. In practice Claude drives almost everything throug
 
 **Setup**
 `get_project_info` · `get_output_dir` · `set_output_dir`
+
+---
+
+## Parts KiCad doesn't have
+
+KiCad ships around 22 700 symbols. The one you need is often not among them.
+`find_part` searches every source at once and `import_part` installs a
+candidate:
+
+```
+find_part   query="ESP32-C3-MINI-1"
+import_part ref="espressif:symbols/Espressif.kicad_sym#ESP32-C3-MINI-1"
+→ MCP_Imported:ESP32-C3-MINI-1   53 pins, footprint matched, ready for compile_schematic
+```
+
+| Source | What it carries | Licence |
+|---|---|---|
+| *installed* | this machine's KiCad libraries and everything already imported | — |
+| **jlcpcb** | JLCPCB's assembly catalogue: symbol + footprint + 3D model, all matched | MIT |
+| **cern** | CERN Open Hardware: symbols for thousands of real part numbers | CERN-OHL-P-2.0 |
+| **digikey-lib** | Digi-Key's library, 150 category libraries | per repository |
+| **espressif** | Espressif's own ESP32 library | per repository |
+| **sparkfun** | SparkFun breakouts, sensors and connectors | CC-SA-4.0 |
+| **lcsc** | LCSC / EasyEDA, converted to KiCad — the long tail, by C-number | third-party data |
+| **mouser**, **digikey** | identification only: the real MPN, manufacturer, package and datasheet behind an order code. **No CAD files** — no distributor serves them. Needs an API key | — |
+
+Each source is indexed once into `libs/cache/` and searched offline from then
+on. Nothing is installed until it has been verified:
+
+1. it parses,
+2. `kicad-cli` reads it back and rewrites it,
+3. it places in a scratch schematic with its pins resolved,
+4. its pins are compared against the footprint's pads,
+5. KiCad draws it, and you get the picture.
+
+**A part that fails is not installed at all.** A half-imported symbol is worse
+than no symbol, because it looks like it works. And if a part exists in no
+source, the answer is that it does not exist — never a substitute chosen
+quietly, never geometry drawn from imagination.
+
+Everything lands in one library, `MCP_Imported`, registered with KiCad so the
+GUI's symbol chooser sees it too. Each imported symbol carries an `MCP_Source`
+property recording where it came from, under what licence and when — which is
+why `libs/` is not versioned: it is reproducible from the sources.
 
 ---
 
@@ -297,6 +347,11 @@ go run ./cmd/verify_e2e              # end-to-end smoke test
 go run ./cmd/compile -o out.kicad_sch docs/compiler/led_18650.design.json
 go run ./cmd/measure_layout out.kicad_sch    # layout quality metrics
 go run ./cmd/pininfo <library.kicad_sym>     # pin positions in a symbol library
+
+# The component sources are claims about the outside world. `go test ./...`
+# never touches the network; these re-measure them on demand.
+MCP_KICAD_LIVE=1 go test ./internal/parts/providers/ -run TestLive -v
+MCP_KICAD_LIVE=1 go test ./internal/tools/ -run TestLiveImportAndCompile -v
 ```
 
 The thirteen sources in `docs/compiler/` are the reference corpus — every change to the pipeline is checked against all of them.

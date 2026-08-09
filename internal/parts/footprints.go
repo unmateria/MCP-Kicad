@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -112,14 +113,28 @@ var footprintTable = map[string]map[string]string{
 // Returns "" if no suggestion exists for that combination.
 func SuggestFootprint(libID, mountType string) string {
 	mt := strings.ToUpper(mountType)
-	if entry, ok := footprintTable[libID]; ok {
-		if fp, ok := entry[mt]; ok {
+	entry, ok := footprintTable[libID]
+	if !ok {
+		return ""
+	}
+	if fp, ok := entry[mt]; ok {
+		return fp
+	}
+	// Unknown or empty mount type: fall back in a FIXED order. Ranging over the
+	// map here returned THT or SMD depending on the run, so the same design
+	// compiled to two different boards.
+	for _, alt := range []string{"THT", "SMD"} {
+		if fp, ok := entry[alt]; ok {
 			return fp
 		}
-		// If mountType not found, try the other type as fallback.
-		for _, fp := range entry {
-			return fp
-		}
+	}
+	keys := make([]string, 0, len(entry))
+	for k := range entry {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		return entry[keys[0]]
 	}
 	return ""
 }

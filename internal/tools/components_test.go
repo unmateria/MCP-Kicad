@@ -62,9 +62,9 @@ func TestHandleCheckComponentExistence_LocalFound(t *testing.T) {
 	}
 }
 
-func TestHandleCheckComponentExistence_NoSnapEDA(t *testing.T) {
+func TestHandleCheckComponentExistence_Missing(t *testing.T) {
 	tmp := t.TempDir()
-	env := &Env{LibsRoot: tmp, SnapEDA: nil}
+	env := &Env{LibsRoot: tmp}
 	res, _, err := env.handleCheckComponentExistence(context.Background(), nil, checkComponentInput{Query: "Device:Nonexistent"})
 	if err != nil {
 		t.Fatal(err)
@@ -139,15 +139,54 @@ func TestHandleRegisterLibrary_Duplicate(t *testing.T) {
 	}
 }
 
-func TestHandleFetchExternalPart_NoSnapEDA(t *testing.T) {
-	env := &Env{LibsRoot: t.TempDir(), SnapEDA: nil}
-	res, _, err := env.handleFetchExternalPart(context.Background(), nil, fetchExternalPartInput{PartID: 1})
+// An imported library shadows the installed one: a part dropped into
+// libs/symbols/ has to be found by name without any further configuration.
+func TestHandleCheckComponentExistence_FindsImported(t *testing.T) {
+	tmp := t.TempDir()
+	symDir := parts.SymbolsPath(tmp)
+	if err := os.MkdirAll(symDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(symDir, parts.ImportedLib+".kicad_sym"), []byte(minimalSymLib), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := &Env{LibsRoot: tmp}
+	res, _, err := env.handleCheckComponentExistence(context.Background(), nil,
+		checkComponentInput{Query: parts.ImportedLib + ":R"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := resultText(t, res)
-	if !strings.Contains(text, "error") {
-		t.Errorf("expected error message, got: %q", text)
+	if !strings.Contains(text, "imported") {
+		t.Errorf("expected the imported library to be reported as such, got: %q", text)
 	}
-	_ = parts.NewSnapEDAClient // ensure parts is used
+}
+
+// The header a table file gets must follow its NAME: writing (sym_lib_table
+// into an fp-lib-table is what the textual implementation used to do, and
+// KiCad refuses to load the result.
+func TestHandleRegisterLibrary_FootprintTableHeader(t *testing.T) {
+	tmp := t.TempDir()
+	tableFile := filepath.Join(tmp, "fp-lib-table")
+
+	env := &Env{}
+	if _, _, err := env.handleRegisterLibrary(context.Background(), nil, registerLibraryInput{
+		TableFile: tableFile,
+		LibName:   "MyFootprints",
+		LibPath:   "/some/path/MyFootprints.pretty",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(tableFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "(fp_lib_table") {
+		t.Errorf("fp-lib-table must start with (fp_lib_table, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), `"MyFootprints"`) {
+		t.Errorf("expected the entry in the table, got:\n%s", data)
+	}
 }

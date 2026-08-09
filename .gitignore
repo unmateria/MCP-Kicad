@@ -7,6 +7,12 @@
 config.ini
 *.bak
 
+# Imported component libraries. Not versioned: this repo is public and the
+# licences of the imported parts are not ours to redistribute. Every imported
+# symbol carries an MCP_Source property (provider, URL, licence, date), so the
+# library is reproducible from the sources instead of from git.
+libs/
+
 # Generated artifacts
 *.pdf
 *.png
@@ -19,3 +25,7 @@ logs/
 nul
 projects/*_e2e/
 /headphone_amp.kicad_sch
+
+# Internal working notes for Claude Code. Deliberately NOT published: it is
+# the maintainer's lab notebook, not documentation for users.
+CLAUDE.md

@@ -95,6 +95,20 @@ func classify(v Violation) ClassifiedViolation {
 	t := strings.ToLower(v.Type)
 	d := strings.ToLower(v.Description)
 
+	// A library the schematic references but KiCad's tables do not list. Its
+	// ERC type contains "lib_symbol", so without this rule it lands in the
+	// malformed-definition bucket below and gets reported as an MCP bug —
+	// which it is not: the symbol is fine, KiCad simply has not been told
+	// where the library lives.
+	if containsAny(d, "does not include the symbol library", "is not enabled in the current configuration",
+		"library is not enabled", "symbol library is not") {
+		return ClassifiedViolation{v, CategoryFixable,
+			"KiCad's symbol library table does not list this library. import_part registers what it " +
+				"installs; for a library you added by hand, use register_library against KiCad's " +
+				"sym-lib-table. The schematic itself is fine — it embeds the symbol — so this only " +
+				"affects opening it in the GUI"}
+	}
+
 	// --- MCP bugs: malformed symbol definitions ---
 	if containsAny(d, "no parent", "extends", "unknown pin type",
 		"expecting input", "malformed", "invalid symbol") {

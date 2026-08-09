@@ -17,9 +17,15 @@ kicad_symbols =
 ; Default: derived from kicad_cli (<kicad root>/share/kicad/footprints).
 kicad_footprints =
 
-; Where downloaded and project-local libraries are kept. Default: "libs".
+; Where imported and project-local libraries are kept. Default: "libs".
 ; A relative path is resolved against the server executable, because Claude
 ; Desktop launches the server from its own working directory.
+;
+; import_part writes into this tree:
+;   <libs_root>/symbols/MCP_Imported.kicad_sym
+;   <libs_root>/footprints/MCP_Imported.pretty/
+;   <libs_root>/3dmodels/
+;   <libs_root>/cache/<provider>/     provider indexes, refreshed on demand
 libs_root =
 
 ; Where generated schematics, SVGs and PDFs are written.
@@ -30,9 +36,20 @@ output_dir =
 freerouting =
 
 [api_keys]
-; SnapEDA API token, used to download symbols that are not in KiCad's
-; libraries. Leave empty to disable external downloads.
-snapeda =
+; Distributor APIs. These are an IDENTIFICATION layer only: no distributor
+; serves KiCad files, so find_part uses them to resolve an ambiguous part
+; number into a real MPN, manufacturer, package and datasheet before looking
+; for CAD files in the library sources. Every source that actually carries
+; symbols and footprints (CERN, JLCPCB, manufacturer repos, LCSC/EasyEDA)
+; needs no key at all.
+
+; Mouser search API key: https://www.mouser.com/api-hub/
+mouser =
+
+; Digi-Key Product Information v4, OAuth2 client_credentials.
+; Register an app at https://developer.digikey.com/ and paste both halves.
+digikey_client_id =
+digikey_client_secret =
 
 ; PCBWay token. Parsed but unused for now.
 pcbway =
