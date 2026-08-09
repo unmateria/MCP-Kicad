@@ -214,11 +214,17 @@ func kicadConfigBase() (string, error) {
 
 // versionFromPath pulls a "<major>.<minor>" segment out of an installation
 // path, e.g. C:\Program Files\KiCad\10.0\bin\kicad-cli.exe → "10.0".
+//
+// Both separators are split on, deliberately, instead of going through
+// filepath: the path comes from config.ini or from KiCad's own detection, so
+// the machine READING it need not be the one that wrote it. filepath.ToSlash
+// is a no-op everywhere except Windows, which made this return "" for a
+// Windows path on Linux — and the only thing that noticed was CI.
 func versionFromPath(p string) string {
 	if p == "" {
 		return ""
 	}
-	for _, seg := range strings.FieldsFunc(filepath.ToSlash(p), func(r rune) bool { return r == '/' }) {
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
 		if strings.Count(seg, ".") != 1 {
 			continue
 		}
