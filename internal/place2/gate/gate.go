@@ -81,6 +81,7 @@ type Violation struct {
 	Net    string // net to blame (primary; the one Enforce will consider demoting)
 	Net2   string // the OTHER net involved; "" for single-net violations (WireThruSymbol, SameNetNoJunction)
 	Detail string
+	X, Y   float64 // where, for the kinds that have a single point (0,0 otherwise)
 }
 
 // wireSeg is one wire segment with its net attribution resolved via
@@ -146,6 +147,7 @@ func Check(sch *sexp.Schematic) []Violation {
 				violations = append(violations, Violation{
 					Kind: SameNetNoJunction, Net: a.net,
 					Detail: fmt.Sprintf("%s crosses itself at (%.2f, %.2f) without a junction", a.net, px, py),
+					X:      px, Y: py,
 				})
 			}
 		}
@@ -196,6 +198,7 @@ func Check(sch *sexp.Schematic) []Violation {
 					Kind: WireOverPin, Net: s.net, Net2: pinNet,
 					Detail: fmt.Sprintf("%s wire runs over pin %s.%s (%s) without connecting to it",
 						s.net, sym.Reference, pin.Number, pinNetLabel(pinNet)),
+					X: pin.X, Y: pin.Y,
 				})
 			}
 		}

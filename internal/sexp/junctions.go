@@ -1,6 +1,7 @@
 package sexp
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -85,6 +86,88 @@ func EnsureJunctions(sch *Schematic) int {
 		sch.AddJunction(NewJunction(float64(pt.x)/100, float64(pt.y)/100))
 	}
 	return len(needed)
+}
+
+// SplitWiresAt cuts every wire whose INTERIOR passes through (x, y) into two
+// wires meeting there, and reports how many it cut.
+//
+// This is the repair for the two defects a net can have against ITSELF: a wire
+// crossing another wire of the same net, and a wire running over a pin of the
+// same net. Neither is a short — the net is already one net — but both are read
+// by a person as "not connected", because in KiCad a wire passing over a point
+// mid-segment genuinely connects nothing. Cutting turns the point into wire
+// ENDS, which is what EnsureJunctions needs to draw the dot that settles it.
+//
+// The alternative the gate used to take was to delete the net's wires and
+// replace them with labels. That trades a visual ambiguity for a drawing the
+// reader calls unwired, and it was doing so for 9 of the 12 demotions across
+// the reference corpus.
+func SplitWiresAt(sch *Schematic, x, y float64) int {
+	target := snapPoint([2]float64{x, y})
+	root := sch.Root()
+	if root == nil {
+		return 0
+	}
+	cut := 0
+	var out []*Node
+	for _, c := range root.Children {
+		if c.Head() != "wire" {
+			out = append(out, c)
+			continue
+		}
+		a, b, ok := wireEnds(c)
+		if !ok || !strictlyBetween(a, b, x, y) || snapPoint(a) == target || snapPoint(b) == target {
+			out = append(out, c)
+			continue
+		}
+		// Keep the original node for its uuid and stroke, and give the copy a
+		// fresh uuid: two wires may not share one.
+		first := cloneWireTo(c, a, [2]float64{x, y})
+		second := cloneWireTo(c, [2]float64{x, y}, b)
+		setNodeUUID(second, NewUUID())
+		out = append(out, first, second)
+		cut++
+	}
+	if cut > 0 {
+		root.Children = out
+	}
+	return cut
+}
+
+// strictlyBetween reports whether (x,y) lies on the open segment a→b. Only
+// orthogonal segments are considered: this compiler emits no others, and a
+// diagonal would need a tolerance argument nobody could justify.
+func strictlyBetween(a, b [2]float64, x, y float64) bool {
+	const tol = 0.01
+	switch {
+	case math.Abs(a[1]-b[1]) < tol && math.Abs(y-a[1]) < tol:
+		lo, hi := math.Min(a[0], b[0]), math.Max(a[0], b[0])
+		return x > lo+tol && x < hi-tol
+	case math.Abs(a[0]-b[0]) < tol && math.Abs(x-a[0]) < tol:
+		lo, hi := math.Min(a[1], b[1]), math.Max(a[1], b[1])
+		return y > lo+tol && y < hi-tol
+	}
+	return false
+}
+
+func cloneWireTo(w *Node, a, b [2]float64) *Node {
+	n := deepClone(w)
+	pts := FindList(n, "pts")
+	if pts == nil {
+		return n
+	}
+	pts.Children = []*Node{
+		Atom("pts"),
+		List(Atom("xy"), Atom(fmt.Sprintf("%.6g", a[0])), Atom(fmt.Sprintf("%.6g", a[1]))),
+		List(Atom("xy"), Atom(fmt.Sprintf("%.6g", b[0])), Atom(fmt.Sprintf("%.6g", b[1]))),
+	}
+	return n
+}
+
+func setNodeUUID(n *Node, uuid string) {
+	if u := FindList(n, "uuid"); u != nil && len(u.Children) > 1 {
+		u.Children[1] = Str(uuid)
+	}
 }
 
 // gridPoint is a coordinate rounded to 0.01 mm, which is finer than any grid

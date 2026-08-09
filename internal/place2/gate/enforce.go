@@ -21,7 +21,36 @@ type DemotedNet struct {
 // EnforceResult summarizes what Enforce did.
 type EnforceResult struct {
 	Demoted    []DemotedNet
+	Repaired   int // wires cut so a net's own crossing became a junction
 	Violations int // remaining violations after the loop (0 unless maxIterations was hit)
+}
+
+// repairSelfViolations fixes the defects a net has against itself by cutting
+// the wire at the offending point, so the point becomes wire ENDS and
+// EnsureJunctions can dot it. Returns how many wires were cut.
+//
+// Only same-net defects qualify. A crossing between two nets is a short and a
+// junction there would cement it; a wire over a FOREIGN pin is the silent short
+// this repository exists to prevent. Both still get demoted.
+func repairSelfViolations(sch *sexp.Schematic, violations []Violation) int {
+	cut := 0
+	for _, v := range violations {
+		switch v.Kind {
+		case SameNetNoJunction:
+		case WireOverPin:
+			// Net2 is the pin's net: only its OWN pin may be joined this way.
+			if v.Net2 != v.Net {
+				continue
+			}
+		default:
+			continue
+		}
+		if n := sexp.SplitWiresAt(sch, v.X, v.Y); n > 0 {
+			cut += n
+			sch.AddJunction(sexp.NewJunction(v.X, v.Y))
+		}
+	}
+	return cut
 }
 
 // String renders a one-line summary suitable for appending to a tool's text
@@ -53,6 +82,15 @@ func Enforce(sch *sexp.Schematic) EnforceResult {
 		if len(violations) == 0 {
 			result.Violations = 0
 			return result
+		}
+		// Repair before demoting. A net that offends only against ITSELF is not
+		// a short and never was: cutting the wire at the point and letting
+		// EnsureJunctions dot it says exactly what is true. Demoting it instead
+		// deletes real wires to buy a pair of tags, which is how a verified
+		// schematic ends up reading as unwired.
+		if n := repairSelfViolations(sch, violations); n > 0 {
+			result.Repaired += n
+			continue
 		}
 		netName, reason := pickWorstNet(sch, violations)
 		if netName == "" {

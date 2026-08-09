@@ -363,3 +363,55 @@ func TestCheckIgnoresWireOverPinWithJunction(t *testing.T) {
 		}
 	}
 }
+
+// A net that crosses ITSELF is not a short — it is one net, already joined.
+// The gate used to delete all its wires and replace them with labels, which is
+// how 7 of the 12 demotions across the reference corpus arose and why readers
+// called the output unwired. It now cuts the wire at the crossing so the point
+// becomes wire ENDS, and dots it.
+func TestEnforceRepairsSelfCrossingInsteadOfDemoting(t *testing.T) {
+	// One net (R1..R4 all on "SIG" via touching wires) whose horizontal and
+	// vertical runs cross at (20.32, 50.8), interior to both.
+	body := deviceRLibSymbols +
+		resistor("R1", 0, 50.8, 0) +
+		resistor("R2", 40.64, 50.8, 0) +
+		resistor("R3", 20.32, 38.1, 90) +
+		resistor("R4", 20.32, 63.5, 90) +
+		`
+	(wire (pts (xy 2.54 50.8) (xy 38.1 50.8)) (stroke (width 0) (type default)) (uuid "wireA"))
+	(wire (pts (xy 20.32 40.64) (xy 20.32 60.96)) (stroke (width 0) (type default)) (uuid "wireB"))
+	(label "SIG" (at 2.54 50.8 0) (effects (font (size 1.27 1.27)) (justify left)) (uuid "lblA"))
+	(label "SIG" (at 20.32 40.64 0) (effects (font (size 1.27 1.27)) (justify left)) (uuid "lblB"))`
+	sch := mustParse(t, wrapSch(body))
+
+	before := len(sch.Wires())
+	result := Enforce(sch)
+
+	if len(result.Demoted) != 0 {
+		t.Fatalf("a net crossing itself must not be demoted, got %+v", result.Demoted)
+	}
+	if result.Repaired == 0 {
+		t.Fatal("expected the crossing to be repaired by cutting the wire")
+	}
+	if after := len(sch.Wires()); after <= before {
+		t.Fatalf("cutting should have increased the wire count: %d → %d", before, after)
+	}
+	if remaining := Check(sch); len(remaining) != 0 {
+		t.Fatalf("Check after Enforce should be empty, got %+v", remaining)
+	}
+	// The dot has to be exactly where they cross; anywhere else it sits on
+	// nothing and claims a connection that is not drawn.
+	found := false
+	for _, j := range sexp.FindAllLists(sch.Root(), "junction") {
+		at := sexp.FindList(j, "at")
+		if at == nil {
+			continue
+		}
+		if sexp.AtomValue(at, 1) == "20.32" && sexp.AtomValue(at, 2) == "50.8" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a junction at the crossing point (20.32, 50.8)")
+	}
+}
