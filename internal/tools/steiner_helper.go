@@ -2,6 +2,7 @@ package tools
 
 import (
 	"math"
+	"sort"
 
 	"mcp-kicad/internal/route2"
 )
@@ -49,25 +50,87 @@ func steinerSegmentsForNet(positions []pinPos) ([]routeSegment, bool) {
 	if !built {
 		return nil, false
 	}
-	out := make([]routeSegment, 0, len(tr.Stubs)+1)
-	if tr.Orientation == 'H' {
+	horizontal := tr.Orientation == 'H'
+	along := func(p pinPos) float64 {
+		if horizontal {
+			return p.x
+		}
+		return p.y
+	}
+	perp := func(p pinPos) float64 {
+		if horizontal {
+			return p.y
+		}
+		return p.x
+	}
+	// point builds a trunk endpoint. When a pin of this net sits exactly there
+	// the endpoint IS that pin: the wire has to end on it, and naming it lets
+	// the caller record that the wire joined it.
+	point := func(at float64, pin *pinPos) pinPos {
+		p := pinPos{ref: "*trunk", x: at, y: tr.Axis, dir: 0}
+		if !horizontal {
+			p = pinPos{ref: "*trunk", x: tr.Axis, y: at, dir: 90}
+		}
+		if pin != nil {
+			p.ref, p.dir = pin.ref, pin.dir
+		}
+		return p
+	}
+
+	// The trunk is CUT at every pin sitting on it, rather than run end to end.
+	//
+	// A wire crossing a pin tip mid-segment is not a connection — that is
+	// measured KiCad behaviour, and the geometric gate reports it as "wire runs
+	// over pin X without connecting to it", then demotes the whole net to
+	// labels. On the buck converter that turned VIN's four colinear pins into
+	// four tags and one wire. Cutting the trunk puts two wire ENDS on the pin,
+	// which is what EnsureJunctions needs to draw the solder dot, and what a
+	// person drawing this by hand does.
+	type cut struct {
+		at  float64
+		pin *pinPos
+	}
+	cuts := []cut{{at: tr.Min}, {at: tr.Max}}
+	for i := range positions {
+		p := &positions[i]
+		if math.Abs(perp(*p)-tr.Axis) > 0.05 {
+			continue // off the axis: it gets a stub, below
+		}
+		a := along(*p)
+		switch {
+		case math.Abs(a-tr.Min) < 0.05:
+			cuts[0].pin = p
+		case math.Abs(a-tr.Max) < 0.05:
+			cuts[1].pin = p
+		case a > tr.Min && a < tr.Max:
+			cuts = append(cuts, cut{at: a, pin: p})
+		}
+	}
+	sort.SliceStable(cuts, func(i, j int) bool { return cuts[i].at < cuts[j].at })
+
+	out := make([]routeSegment, 0, len(cuts)+len(tr.Stubs))
+	for i := 1; i < len(cuts); i++ {
+		if cuts[i].at-cuts[i-1].at < 0.05 {
+			continue
+		}
 		out = append(out, routeSegment{
-			from: pinPos{ref: "*trunk", x: tr.Min, y: tr.Axis, dir: 0},
-			to:   pinPos{ref: "*trunk", x: tr.Max, y: tr.Axis, dir: 0},
-		})
-	} else {
-		out = append(out, routeSegment{
-			from: pinPos{ref: "*trunk", x: tr.Axis, y: tr.Min, dir: 90},
-			to:   pinPos{ref: "*trunk", x: tr.Axis, y: tr.Max, dir: 90},
+			from: point(cuts[i-1].at, cuts[i-1].pin),
+			to:   point(cuts[i].at, cuts[i].pin),
 		})
 	}
 	for _, s := range tr.Stubs {
 		var src pinPos
+		found := false
 		for _, p := range positions {
 			if math.Abs(p.x-s[0][0]) < 0.05 && math.Abs(p.y-s[0][1]) < 0.05 {
-				src = p
+				src, found = p, true
 				break
 			}
+		}
+		// A pin already on the axis has a zero-length stub and is now a trunk
+		// endpoint; emitting it would be a wire from a point to itself.
+		if !found || (math.Abs(s[0][0]-s[1][0]) < 0.05 && math.Abs(s[0][1]-s[1][1]) < 0.05) {
+			continue
 		}
 		dst := pinPos{ref: "*trunk", x: s[1][0], y: s[1][1], dir: src.dir}
 		out = append(out, routeSegment{from: src, to: dst})

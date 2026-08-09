@@ -360,8 +360,44 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		// closest already-connected pin. This produces ~30% less wire than naive
 		// daisy-chain (positions[i]→positions[i+1]) and avoids long zig-zag routes
 		// when the LLM passes pins in unhelpful order.
+		// What the wires actually joined, tracked as this net is routed. The
+		// segment list says what was ATTEMPTED; only this says what succeeded,
+		// and the net's post-condition below is stated in terms of it.
+		parent := map[string]string{}
+		var find func(string) string
+		find = func(x string) string {
+			p, ok := parent[x]
+			if !ok || p == x {
+				parent[x] = x
+				return x
+			}
+			r := find(p)
+			parent[x] = r
+			return r
+		}
+		union := func(a, b string) {
+			if ra, rb := find(a), find(b); ra != rb {
+				parent[ra] = rb
+			}
+		}
+
 		var segments []routeSegment
 		netComp := compForNet[conn.Net]
+		if netComp != nil {
+			// Pins the formula layer already wired start out joined.
+			firstOfComp := map[int]string{}
+			for _, p := range positions {
+				id, ok := netComp[p.ref]
+				if !ok {
+					continue
+				}
+				if first, seen := firstOfComp[id]; seen {
+					union(first, p.ref)
+				} else {
+					firstOfComp[id] = p.ref
+				}
+			}
+		}
 		switch {
 		case compHasMultiple(positions, netComp):
 			// Some pins of this net were already wired by the cluster layer;
@@ -410,6 +446,7 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 					addTJunctions(sch, path)
 					netWires += len(wires)
 					usedWire = true
+					union(from.ref, to.ref)
 				} else if strategy == "wire" {
 					netNotes = append(netNotes, fmt.Sprintf("%s→%s A* failed", from.ref, to.ref))
 					totalErrors++
@@ -434,6 +471,53 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 				}
 			}
 			_ = usedWire
+		}
+
+		// Post-condition for this net: every pin ends up either wired to another
+		// pin of the net or carrying a label. Nothing enforced that before, and
+		// the Steiner pre-pass broke it silently. When its trunk cannot be routed
+		// — typically because a straight run between colinear pins would cross a
+		// FOREIGN pin, which the router rightly refuses — the fallback labels the
+		// ends of the segments it tried, and the colinear pins that sat ON the
+		// trunk are in no segment at all, so they get nothing. Measured on the
+		// buck converter: VOUT's four pins came out as two labels, with L1.2 and
+		// C3.1 alone on nets of their own.
+		//
+		// Grouping by what the wires actually joined and labelling one pin per
+		// group is the general fix: K groups become one net through the name.
+		// Iteration order follows `positions`, never a map, because this decides
+		// where a label is drawn.
+		var roots []string
+		seenRoot := map[string]bool{}
+		for _, p := range positions {
+			if r := find(p.ref); !seenRoot[r] {
+				seenRoot[r] = true
+				roots = append(roots, r)
+			}
+		}
+		if len(roots) > 1 && conn.Net != "" {
+			for _, r := range roots {
+				var anchor *pinPos
+				labelled := false
+				for i, p := range positions {
+					if find(p.ref) != r {
+						continue
+					}
+					if anchor == nil {
+						anchor = &positions[i]
+					}
+					if labeledPoints[[2]float64{sexp.Round2(p.x), sexp.Round2(p.y)}] {
+						labelled = true
+						break
+					}
+				}
+				if labelled || anchor == nil {
+					continue
+				}
+				sch.AddLabel(sexp.NewNetLabel(conn.Net, anchor.x, anchor.y, labelRotForDir(anchor.dir)))
+				labeledPoints[[2]float64{sexp.Round2(anchor.x), sexp.Round2(anchor.y)}] = true
+				netLabels++
+			}
 		}
 
 		// When all segments were routed with wires (no labels), place one net label
