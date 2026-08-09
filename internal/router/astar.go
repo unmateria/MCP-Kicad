@@ -33,11 +33,12 @@ const (
 // Router holds the obstacle grid and can route multiple paths.
 // After routing a segment call MarkWire to treat the result as a soft obstacle.
 type Router struct {
-	ox, oy float64
-	cols   int
-	rows   int
-	hard   []bool // true → not traversable (symbol body interior)
-	soft   []int  // extra traversal cost (existing wire crossing)
+	ox, oy  float64
+	cols    int
+	rows    int
+	hard    []bool // true → not traversable (symbol body interior)
+	soft    []int  // extra traversal cost (existing wire crossing)
+	bendPen int    // 0 = use the package default
 }
 
 // NewRouter builds the obstacle grid from placed symbols and existing wires.
@@ -105,6 +106,23 @@ func NewRouter(syms []sexp.SchematicSymbol, existingWires []*sexp.Node) *Router 
 	}
 
 	return r
+}
+
+// BendPenalty overrides the cost of changing direction for this router.
+//
+// Left at zero it means bendPenalty, the default. Raising it buys straighter
+// wires with longer detours, and which of those a given sheet prefers is not
+// something one constant can answer: swept across the reference corpus, 64
+// gave the fewest corners (167 → 154) and the most text collisions in two of
+// the four settings tried. So the value is a knob the compiler's own search
+// turns while measuring, not a number chosen once here.
+func (r *Router) BendPenalty(cost int) { r.bendPen = cost }
+
+func (r *Router) bendPenalty() int {
+	if r.bendPen > 0 {
+		return r.bendPen
+	}
+	return bendPenalty
 }
 
 // symbolBodyBBox returns the bounding box of the symbol's *body* (the drawn
@@ -303,7 +321,7 @@ func (r *Router) Route(x1, y1, x2, y2 float64) [][2]float64 {
 			newDir := dd[i]
 			bendCost := 0
 			if s.dir != dirNone && s.dir != newDir {
-				bendCost = bendPenalty
+				bendCost = r.bendPenalty()
 			}
 			ng := g + 1 + bendCost + r.soft[idx]
 			ns := astate{nc, nr, newDir}

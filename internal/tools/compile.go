@@ -30,35 +30,34 @@ type CompileResult struct {
 	NetDefects    []NetDefect // non-empty means the emitted netlist != the declared one
 }
 
-// CompileDesign compiles a .design.json source into a complete schematic:
-// parse → resolve placement → stamp templates + emit symbols → wiregen →
-// route/label → gate → power flags → no_connect → sheet fit → ERC → render.
-// outSchPath == "" defaults to <design dir>/<project>.kicad_sch.
-func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, error) {
-	d, err := compile.ParseDesignFile(designPath)
-	if err != nil {
-		return nil, err
-	}
-	if outSchPath == "" {
-		outSchPath = filepath.Join(filepath.Dir(designPath), d.Project+".kicad_sch")
-	}
-	absOut, err := filepath.Abs(outSchPath)
-	if err != nil {
-		return nil, err
-	}
+// buildSchematic runs the geometry pipeline: everything that turns a parsed
+// design into a finished schematic IN MEMORY — placement, wiring, the gate,
+// solder dots, text placement — and nothing that touches the disk.
+//
+// Split out from CompileDesign so it can be run more than once. Writing the
+// file, computing metrics, running ERC and rendering the preview cost several
+// seconds; this costs milliseconds, which is what makes it affordable to
+// compile a design a dozen times and keep the tidiest result.
+// buildOpts are the knobs the tidy search turns. Zero values mean "as the
+// author wrote it", so a plain compile passes buildOpts{}.
+type buildOpts struct {
+	BendPenalty int // 0 = the router's default cost for changing direction
+	NetOrder    int // 0 = by name; 1 = fewest pins first; 2 = most pins first
+}
 
+func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, string, []NetDefect, error) {
 	sg, err := e.newLibGeom()
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 	layout, err := compile.Resolve(d, sg, tmplGeom{})
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 
 	sch, err := newEmptySchematic()
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 	if d.Sheet == "A3" {
 		sch.SetPaper("A3")
@@ -77,7 +76,7 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		if blk.Template != "" {
 			tpl, err := templates.Get(blk.Template)
 			if err != nil {
-				return nil, fmt.Errorf("block %s: %w", pb.Name, err)
+				return nil, "", nil, fmt.Errorf("block %s: %w", pb.Name, err)
 			}
 			pinMap := map[string]string{}
 			for _, ep := range tpl.ExternalPins {
@@ -98,14 +97,14 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 				},
 			})
 			if err != nil {
-				return nil, fmt.Errorf("block %s: stamp %s: %w", pb.Name, blk.Template, err)
+				return nil, "", nil, fmt.Errorf("block %s: stamp %s: %w", pb.Name, blk.Template, err)
 			}
 			fmt.Fprintf(&sb, "  block %-8s template %s: %d symbols, %d wires\n",
 				pb.Name, blk.Template, len(res.PlacedRefs), res.WiresAdded)
 		} else {
 			for _, ps := range pb.Symbols {
 				if err := e.embedLibSymbol(sch, ps.LibID); err != nil {
-					return nil, fmt.Errorf("block %s: %s: %w", pb.Name, ps.Ref, err)
+					return nil, "", nil, fmt.Errorf("block %s: %s: %w", pb.Name, ps.Ref, err)
 				}
 				unit := ps.Unit
 				if unit < 1 {
@@ -126,11 +125,11 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	}
 
 	if err := checkPowerRails(d); err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 
 	if err := checkPinContacts(sch, d); err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 
 	// Connection table, net names sorted for determinism. Power nets whose
@@ -167,7 +166,7 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		if len(pins) == 1 && netNameToPowerLibID(name) == "" {
 			pin, ok := sexp.FindPin(sch, pins[0])
 			if !ok {
-				return nil, fmt.Errorf("net %s: pin %s not found", name, pins[0])
+				return nil, "", nil, fmt.Errorf("net %s: pin %s not found", name, pins[0])
 			}
 			sch.AddLabel(sexp.NewNetLabel(name, pin.X, pin.Y, labelRotForDir(pin.Direction)))
 			fmt.Fprintf(&sb, "  %-20s [label]  %s — single-pin net labeled\n", name, pins[0])
@@ -204,7 +203,14 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		}
 	}
 
+	// The order nets are routed in is not cosmetic: each finished wire becomes
+	// a soft obstacle for the next, so whoever goes first gets the clean path.
+	// Sorted by name it is arbitrary — on buck_mc34063a it sent one VIN hop on
+	// a detour right over the top of the IC.
+	orderConns(conns, o.NetOrder)
+
 	rt := router.NewRouter(sexp.ReadSymbols(sch), sch.Wires())
+	rt.BendPenalty(o.BendPenalty)
 	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, conns, "auto", compForNet, &sb)
 	totalWires += wiregenWires
 
@@ -230,6 +236,18 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		fmt.Fprintf(&sb, "quiet nets: label removed for %s\n", strings.Join(stripped, ", "))
 	}
 
+	// Solder dots, once the wire geometry is final — after the gate has
+	// removed wires and the welder has added them, so the dots describe what
+	// is actually drawn. This is what tells a reader that a wire running
+	// through a pin is CONNECTED to it rather than passing over it; without
+	// it the netlist can be perfect and the drawing still unreadable. Two
+	// experienced readers looked at this compiler's output and concluded that
+	// almost nothing in it was joined — right about the drawing, wrong about
+	// the netlist. VerifyNetlist below guarantees a dot never merged two nets.
+	if added := sexp.EnsureJunctions(sch); added > 0 {
+		fmt.Fprintf(&sb, "junctions: %d solder dot(s) added\n", added)
+	}
+
 	autoNC := e.applyNoConnects(sch, d, &sb)
 	if len(autoNC) > 0 {
 		fmt.Fprintf(&sb, "auto no_connect (%d pins): %s\n", len(autoNC), strings.Join(autoNC, " "))
@@ -244,28 +262,6 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 			"        Those nets now take KiCad's automatic name (Net-(U3-Qd) and such) instead of yours. If you need the name kept, give the parts more room so the label fits.\n",
 			strings.Join(dropped, ", "))
 		textplace.Autoplace(sch) // re-place what is left, now that there is room
-	}
-
-	// Counted last, after the labels that were in the way are gone and the
-	// rest have been re-placed: anything else reports a number the finished
-	// sheet does not have.
-	if cols := textplace.Collisions(sch); len(cols) > 0 {
-		total, fixable := 0.0, 0
-		for _, c := range cols {
-			total += c.Area
-			if !c.Intrinsic {
-				fixable++
-			}
-		}
-		// Split the count. On a 27-symbol board, 33 of 41 collisions were
-		// inside their own packages; one number sent the author hunting all
-		// of them when only eight were worth an iteration.
-		note := ""
-		if fixable < len(cols) {
-			note = fmt.Sprintf(" — %d worth chasing, %d intrinsic to their own symbols", fixable, len(cols)-fixable)
-		}
-		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2%s\n      worst: %s\n",
-			len(cols), total, note, cols[0])
 	}
 
 	if note := fitToSheet(sch); note != "" {
@@ -288,6 +284,30 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 			strings.Join(flush, "; "))
 	}
 
+	// Counted on the FINISHED sheet, which means after dropOrphanPowerSymbols
+	// as well as after the labels that were in the way are gone. Counting it
+	// where it used to sit — before those symbols are removed — reported 47
+	// collisions for a file that has 42, so the number the author iterated
+	// against was not the number the drawing had.
+	if cols := textplace.Collisions(sch); len(cols) > 0 {
+		total, fixable := 0.0, 0
+		for _, c := range cols {
+			total += c.Area
+			if !c.Intrinsic {
+				fixable++
+			}
+		}
+		// Split the count. On a 27-symbol board, 33 of 41 collisions were
+		// inside their own packages; one number sent the author hunting all
+		// of them when only eight were worth an iteration.
+		note := ""
+		if fixable < len(cols) {
+			note = fmt.Sprintf(" — %d worth chasing, %d intrinsic to their own symbols", fixable, len(cols)-fixable)
+		}
+		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2%s\n      worst: %s\n",
+			len(cols), total, note, cols[0])
+	}
+
 	defects := VerifyNetlist(sch, d)
 	switch {
 	case len(d.Nets) == 0:
@@ -299,6 +319,41 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		for _, def := range defects {
 			fmt.Fprintf(&sb, "  %s\n", def)
 		}
+	}
+
+	return sch, sb.String(), defects, nil
+}
+
+// CompileDesign compiles a .design.json source into a complete schematic:
+// parse → resolve placement → stamp templates + emit symbols → wiregen →
+// route/label → gate → power flags → no_connect → sheet fit → ERC → render.
+// outSchPath == "" defaults to <design dir>/<project>.kicad_sch.
+func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, error) {
+	d, err := compile.ParseDesignFile(designPath)
+	if err != nil {
+		return nil, err
+	}
+	if outSchPath == "" {
+		outSchPath = filepath.Join(filepath.Dir(designPath), d.Project+".kicad_sch")
+	}
+	absOut, err := filepath.Abs(outSchPath)
+	if err != nil {
+		return nil, err
+	}
+
+	sch, report, defects, err := e.buildSchematic(d, buildOpts{})
+	if err != nil {
+		return nil, err
+	}
+	// Act on the measurement instead of only printing it: the collision report
+	// already says how many cells would clear each overlap, and until now the
+	// author had to apply that advice by hand, one recompile at a time.
+	sch, report, defects, tidyNote := e.tidy(d, sch, report, defects)
+
+	sb := strings.Builder{}
+	sb.WriteString(report)
+	if tidyNote != "" {
+		fmt.Fprintf(&sb, "%s\n", tidyNote)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
@@ -601,4 +656,24 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 		}
 	}
 	return dropped
+}
+
+// orderConns re-sorts the nets before routing. Name order (mode 0) is the
+// author's, kept as the default; the alternatives let the search ask whether
+// the small nets or the big ones deserve the clean corridors. Ties always fall
+// back to the name, so every mode is deterministic.
+func orderConns(conns []NetConn, mode int) {
+	if mode == 0 {
+		return
+	}
+	sort.SliceStable(conns, func(i, j int) bool {
+		a, b := len(conns[i].Pins), len(conns[j].Pins)
+		if a != b {
+			if mode == 1 {
+				return a < b
+			}
+			return a > b
+		}
+		return conns[i].Net < conns[j].Net
+	})
 }
