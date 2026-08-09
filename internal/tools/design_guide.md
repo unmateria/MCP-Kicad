@@ -22,9 +22,20 @@ cable cuando existe corredor limpio.
 
 ## Disposición (lo que más se nota)
 
+0. **Dale al circuito por dónde entrar y por dónde salir.** Un conector de
+   entrada a la izquierda y otro de salida a la derecha
+   (`Connector_Generic:Conn_01x02`, `Conn_01x03`…), con un `value` que diga
+   qué es: `"VIN 12V"`, `"AUDIO OUT"`. Sin eso, el lector no puede saber qué
+   hace el circuito por muy limpio que esté el cableado — es la crítica más
+   dura que ha recibido este compilador, y siete de los trece diseños de
+   ejemplo la merecían. Excepciones legítimas: un circuito cerrado sobre sí
+   mismo (pila + LED) y un fragmento pensado para pegarse en una hoja mayor.
+   `compile_schematic` avisa cuando no hay ninguno.
 1. **La señal fluye de izquierda a derecha**: entradas/fuentes a la
    izquierda, cargas/salidas a la derecha. La realimentación vuelve por la
-   derecha (o por etiqueta si el lazo sería una serpiente).
+   derecha (o por etiqueta si el lazo sería una serpiente). El conector de
+   entrada suele querer `"mirror": true` para que sus pines miren al
+   circuito.
 2. **Alimentación arriba, GND abajo.** Los condensadores verticales con el
    pin 1 arriba hacia el rail y el pin 2 abajo hacia GND caen así solos.
 3. **Un bloque = una idea funcional** (alimentación, MCU, oscilador, bus,

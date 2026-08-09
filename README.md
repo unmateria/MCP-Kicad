@@ -34,9 +34,12 @@ Generating *something* is easy; generating a schematic a human would accept is n
 | Every declared connection exists | The finished file is re-read and its netlist compared against what you asked for |
 | No accidental extra connections | The same check, in reverse — a wire that touches a pin it shouldn't is an error |
 | Power symbols really touch their pins | Verified by physical contact, not by net name |
+| A junction wherever wires meet | The rule was measured across the 115 schematics KiCad ships: a dot where three or more wire ends meet, and where two meet on a pin |
 | KiCad agrees | `kicad-cli` runs ERC on the result and the report comes back with it |
 
 If a connection cannot be drawn cleanly, it degrades to a net label rather than producing a wire that lies. **The schematic is never silently wrong.**
+
+A net crossing *itself* is not one of those cases: it is one net either way, so the wire is cut at the crossing and given a junction rather than being thrown away. Only a genuine conflict with another net costs you a wire.
 
 ### What it does not do
 

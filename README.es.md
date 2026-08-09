@@ -34,9 +34,12 @@ Generar *algo* es fácil; generar un esquema que un humano acepte, no. Cada esqu
 | Todas las conexiones declaradas existen | El fichero terminado se vuelve a leer y su netlist se compara con lo que pediste |
 | No hay conexiones de más | La misma comprobación al revés: un cable que toca un pin que no debe es un error |
 | Los símbolos de alimentación tocan sus pines de verdad | Se verifica por contacto físico, no por nombre de net |
+| Un punto de soldadura donde se juntan los cables | La regla se midió sobre los 115 esquemas que distribuye KiCad: punto donde se juntan tres o más extremos de cable, y donde se juntan dos sobre un pin |
 | KiCad está de acuerdo | `kicad-cli` ejecuta el ERC sobre el resultado y el informe viene incluido |
 
 Si una conexión no se puede dibujar limpia, degrada a etiqueta de net en vez de producir un cable que miente. **El esquema nunca está mal en silencio.**
+
+Que una net se cruce *consigo misma* no es uno de esos casos: sigue siendo una sola net, así que el cable se corta en el cruce y se le pone un punto de soldadura en vez de tirarlo. Solo un conflicto real con otra net te cuesta un cable.
 
 ### Qué no hace
 
