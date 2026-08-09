@@ -1340,7 +1340,12 @@ func NewNoConnect(x, y float64) *Node {
 // Required wherever three or more wires meet in a T-intersection; without it
 // KiCad does not treat the crossing as an electrical connection.
 func NewJunction(x, y float64) *Node {
-	x, y = snapGrid(x), snapGrid(y)
+	// Deliberately NOT snapped to the grid. A solder dot means "the wires that
+	// meet HERE are joined"; moved even a tenth of a millimetre it sits on
+	// nothing, and KiCad draws a dot that connects no more than a smudge
+	// would. Callers pass coordinates taken from wire endpoints, which the
+	// router has already placed on the grid, so nothing moves in practice —
+	// but when something is off-grid the dot has to follow it, not the grid.
 	return List(
 		Atom("junction"),
 		List(Atom("at"), Atom(fmt.Sprintf("%.6g", x)), Atom(fmt.Sprintf("%.6g", y))),
