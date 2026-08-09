@@ -1,115 +1,57 @@
 {
   "version": 1,
   "project": "demo_buck_converter",
-  "description": "Buck regulator: LM2596-5 fixed 5 V. The switch node comes off pin 2 (OUT); ~ON/OFF is tied low so the regulator is enabled; FB ties to VOUT as the fixed-output part requires.",
+  "description": "Buck regulator: LM2596-5 fixed 5 V, 12 V in. Laid out the way the TI datasheet draws it: input terminal on the left, output terminal on the right, ground at the bottom. The switch node comes off OUT; ~ON/OFF is tied low so the regulator is enabled; FB ties to VOUT as the fixed-output part requires.",
   "sheet": "auto",
+
   "blocks": [
     {
-      "name": "buck",
+      "name": "input",
       "symbols": [
-        {
-          "ref": "U1",
-          "lib": "Regulator_Switching:LM2596S-5",
-          "value": "LM2596-5"
-        },
-        {
-          "ref": "C2",
-          "lib": "Device:C",
-          "value": "100n",
-          "place": {
-            "pin": "1",
-            "at": "U1.~{ON}/OFF",
-            "dir": "left",
-            "cells": 4
-          }
-        },
-        {
-          "ref": "C1",
-          "lib": "Device:C",
-          "value": "470u",
-          "place": {
-            "pin": "1",
-            "at": "C2.1",
-            "dir": "left",
-            "cells": 4
-          }
-        },
-        {
-          "ref": "L1",
-          "lib": "Device:L",
-          "value": "33uH",
-          "rot": 270,
-          "place": {
-            "pin": "1",
-            "at": "U1.OUT",
-            "dir": "down",
-            "cells": 8
-          }
-        },
-        {
-          "ref": "D1",
-          "lib": "Diode:1N5822",
-          "value": "1N5822",
-          "rot": 270,
-          "place": {
-            "pin": "K",
-            "at": "L1.1",
-            "dir": "down",
-            "cells": 3
-          }
-        },
-        {
-          "ref": "C4",
-          "lib": "Device:C",
-          "value": "100n",
-          "place": {
-            "pin": "1",
-            "at": "L1.2",
-            "dir": "left",
-            "cells": 5
-          }
-        },
-        {
-          "ref": "C3",
-          "lib": "Device:C",
-          "value": "220u",
-          "place": {
-            "pin": "1",
-            "at": "C4.1",
-            "dir": "left",
-            "cells": 4
-          }
-        }
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x02", "value": "VIN 12V", "mirror": true },
+        { "ref": "C1", "lib": "Device:C", "value": "470u",
+          "place": { "pin": "1", "at": "J1.1", "dir": "right", "cells": 6 } },
+        { "ref": "C2", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "C1.1", "dir": "right", "cells": 5 } }
+      ]
+    },
+    {
+      "name": "ic",
+      "symbols": [
+        { "ref": "U1", "lib": "Regulator_Switching:LM2596S-5", "value": "LM2596-5" }
+      ]
+    },
+    {
+      "name": "power",
+      "symbols": [
+        { "ref": "L1", "lib": "Device:L", "value": "33uH", "rot": 90 },
+        { "ref": "D1", "lib": "Diode:1N5822", "value": "1N5822", "rot": 270,
+          "place": { "pin": "K", "at": "L1.1", "dir": "down", "cells": 4 } },
+        { "ref": "C3", "lib": "Device:C", "value": "220u",
+          "place": { "pin": "1", "at": "L1.2", "dir": "right", "cells": 6 } },
+        { "ref": "C4", "lib": "Device:C", "value": "100n",
+          "place": { "pin": "1", "at": "C3.1", "dir": "right", "cells": 5 } }
+      ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x02", "value": "VOUT 5V" }
       ]
     }
   ],
+
+  "arrange": [
+    ["input", "ic", "power", "output"]
+  ],
+
   "nets": {
-    "VIN": [
-      "C1.1",
-      "C2.1",
-      "U1.VIN"
-    ],
-    "SW": [
-      "U1.OUT",
-      "L1.1",
-      "D1.K"
-    ],
-    "VOUT": [
-      "L1.2",
-      "C3.1",
-      "C4.1",
-      "U1.FB"
-    ],
-    "GND": [
-      "U1.GND",
-      "U1.~{ON}/OFF",
-      "C1.2",
-      "C2.2",
-      "C3.2",
-      "C4.2",
-      "D1.A"
-    ]
+    "VIN": ["J1.1", "C1.1", "C2.1", "U1.VIN"],
+    "SW": ["U1.OUT", "L1.1", "D1.K"],
+    "VOUT": ["L1.2", "C3.1", "C4.1", "U1.FB", "J2.1"],
+    "GND": ["U1.GND", "U1.~{ON}/OFF", "C1.2", "C2.2", "C3.2", "C4.2", "D1.A", "J1.2", "J2.2"]
   },
+
   "power_nets": {
     "GND": "power:GND"
   }

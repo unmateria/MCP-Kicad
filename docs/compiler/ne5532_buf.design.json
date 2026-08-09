@@ -1,20 +1,35 @@
 {
   "version": 1,
   "project": "ne5532",
-  "description": "NE5532 stereo dual unity-gain buffer (multi-unit A/B/C)",
+  "description": "NE5532 stereo unity-gain buffer: two voltage followers, ±12 V rails decoupled at the power unit. Signal enters at J1 on the left and leaves at J2 on the right; each follower ties its output back to its inverting input.",
   "sheet": "auto",
 
   "blocks": [
+    {
+      "name": "input",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x03", "value": "AUDIO IN", "mirror": true }
+      ]
+    },
     {
       "name": "amps",
       "symbols": [
         { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 1 },
 
         { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 2,
-          "place": { "pin": "5", "at": "U1.1.3", "dir": "down", "cells": 8 } },
-
-        { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 3,
-          "place": { "pin": "8", "at": "U1.1.1", "dir": "right", "cells": 10 } },
+          "place": { "pin": "5", "at": "U1.1.3", "dir": "down", "cells": 8 } }
+      ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x03", "value": "AUDIO OUT" }
+      ]
+    },
+    {
+      "name": "power",
+      "symbols": [
+        { "ref": "U1", "lib": "Amplifier_Operational:NE5532", "value": "NE5532", "unit": 3 },
 
         { "ref": "C1", "lib": "Device:C", "value": "100n",
           "place": { "pin": "1", "at": "U1.3.8", "dir": "right", "cells": 6 } },
@@ -24,10 +39,17 @@
     }
   ],
 
+  "arrange": [
+    ["input", "amps", "output"],
+    ["power"]
+  ],
+
   "nets": {
-    "OUT_A": ["U1.1.1", "U1.1.2"],
-    "OUT_B": ["U1.2.7", "U1.2.6"],
-    "GND":   ["U1.1.3", "U1.2.5", "C1.2", "C2.1"],
+    "IN_L":  ["J1.1", "U1.1.3"],
+    "IN_R":  ["J1.2", "U1.2.5"],
+    "OUT_L": ["U1.1.1", "U1.1.2", "J2.1"],
+    "OUT_R": ["U1.2.7", "U1.2.6", "J2.2"],
+    "GND":   ["J1.3", "J2.3", "C1.2", "C2.1"],
     "VPP":   ["U1.3.8", "C1.1"],
     "VMM":   ["U1.3.4", "C2.2"]
   },
