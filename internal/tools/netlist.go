@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -352,7 +353,27 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 		if pwrLib := netNameToPowerLibID(conn.Net); pwrLib != "" && strategy != "wire" {
 			em := e.NewPowerEmitter(sch)
 			pwrPlaced := 0
-			for _, p := range positions {
+			// Aligned runs of this rail's pins — a decoupling farm — get ONE
+			// trunk wire and ONE symbol instead of a symbol per pin, when the
+			// whole corridor verifies clear. Everything else stays per-pin.
+			groups, loose := detectPowerRails(positions)
+			railWires, railed := 0, 0
+			for _, g := range groups {
+				if !railClear(sch, g, foreignPins) {
+					loose = append(loose, g.pins...)
+					continue
+				}
+				w, ok := emitRail(sch, em, pwrLib, g)
+				if !ok {
+					loose = append(loose, g.pins...)
+					continue
+				}
+				railWires += w
+				railed += len(g.pins)
+				pwrPlaced++
+			}
+			sort.Slice(loose, func(i, j int) bool { return loose[i].ref < loose[j].ref })
+			for _, p := range loose {
 				msg, ok, dedup := em.Emit(pwrLib, p.ref)
 				if ok && !dedup {
 					pwrPlaced++
@@ -360,6 +381,10 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 				if !ok {
 					netNotes = append(netNotes, msg)
 				}
+			}
+			if railed > 0 {
+				netNotes = append(netNotes, fmt.Sprintf("rail: %d pin(s) share one %s over %d wire seg(s)", railed, pwrLib, railWires))
+				totalWires += railWires
 			}
 			status := ""
 			if len(netNotes) > 0 {
