@@ -642,11 +642,23 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 		if !guilty[name] {
 			continue
 		}
+		// The declared pins under-state what the label holds together: a
+		// template's pins join the net by label NAME and appear in no d.Nets
+		// entry, so checking only d.Nets[name] once dropped the SDA label off
+		// an I2C pull-up and left the resistor floating — with the netlist
+		// still "verified", because the declared pins stayed joined by wire.
+		// And same-name islands connect BY the name (a local label reaches a
+		// like-named power rail with no wire between them), so single traced
+		// nets cannot be checked one at a time either. The criterion that
+		// matches KiCad's connectivity: the union of pins reachable under
+		// this name must be exactly the same once the labels are gone.
+		before := pinsUnderName(sch, name)
 		removed := sch.RemoveLabelsNamed(name)
 		if len(removed) == 0 {
 			continue
 		}
-		if netIntact(sch, d.Nets[name]) {
+		intact := netIntact(sch, d.Nets[name]) && sameNetPins(before, pinsUnderName(sch, name))
+		if intact {
 			if c := cost[name]; c.NeedCells() > 0 {
 				dropped = append(dropped, fmt.Sprintf("%s (%d cell(s) more between it and %s would have kept it)",
 					name, c.NeedCells(), strings.Replace(c.With, "wire:", "wire ", 1)))
@@ -660,6 +672,35 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 		}
 	}
 	return dropped
+}
+
+// pinsUnderName collects every pin, across all traced nets, that carries the
+// given net name. KiCad joins same-named islands with no wire between them,
+// so this union — not any single traced net — is what the name electrically
+// means.
+func pinsUnderName(sch *sexp.Schematic, name string) map[string]bool {
+	pins := make(map[string]bool)
+	for _, net := range sexp.TraceNets(sch) {
+		if net.Name != name {
+			continue
+		}
+		for _, p := range net.Pins {
+			pins[p.Reference+"."+p.PinNumber] = true
+		}
+	}
+	return pins
+}
+
+func sameNetPins(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // orderConns re-sorts the nets before routing. Name order (mode 0) is the

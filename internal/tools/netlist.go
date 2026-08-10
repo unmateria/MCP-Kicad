@@ -288,7 +288,11 @@ type routeSegment struct {
 // routing is identical to the pre-Phase-3 behaviour.
 func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn, strategy string, compForNet map[string]map[string]int, sb *strings.Builder) (totalWires, totalLabels, totalErrors int) {
 	for _, conn := range conns {
-		if len(conn.Pins) < 2 {
+		// A recognized power net is exempt from the two-pin minimum: its pins
+		// are never routed to each other anyway — each gets its own power
+		// symbol below, and one pin is enough for that. Skipping it here left
+		// a lone connector pin on a "+5V" net with nothing at all.
+		if len(conn.Pins) < 2 && (netNameToPowerLibID(conn.Net) == "" || strategy == "wire") {
 			fmt.Fprintf(sb, "  %-20s SKIP  (need at least 2 pins, got %d)\n", conn.Net, len(conn.Pins))
 			continue
 		}

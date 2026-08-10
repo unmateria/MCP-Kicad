@@ -146,13 +146,40 @@ func (e *Env) ensurePowerFlags(sch *sexp.Schematic) int {
 	syms := sexp.ReadSymbols(sch)
 	em := e.NewPowerEmitter(sch)
 	added := 0
-	for _, net := range nets {
-		if net.Dangling || len(net.Pins) < 2 {
+
+	// KiCad joins same-named islands with no wire between them — a local
+	// "+5V" label reaches the "+5V" power rail by name alone (measured on
+	// demo_voltage_regulator). Deciding driver-vs-power_in per island put a
+	// PWR_FLAG on a rail whose driver sat in another island of the same name,
+	// and KiCad then reported two power outputs on one net. Merge by name
+	// first and decide on what KiCad will actually see.
+	type mergedNet struct {
+		pins     []sexp.PinRef
+		dangling bool
+	}
+	byName := make(map[string]*mergedNet, len(nets))
+	var order []string
+	for _, net := range nets { // nets arrive sorted, so order is deterministic
+		m, ok := byName[net.Name]
+		if !ok {
+			m = &mergedNet{dangling: true}
+			byName[net.Name] = m
+			order = append(order, net.Name)
+		}
+		m.pins = append(m.pins, net.Pins...)
+		if !net.Dangling {
+			m.dangling = false
+		}
+	}
+
+	for _, name := range order {
+		net := byName[name]
+		if net.dangling || len(net.pins) < 2 {
 			continue
 		}
 		hasPowerIn, hasDriver := false, false
 		var passives, others []string
-		for _, p := range net.Pins {
+		for _, p := range net.pins {
 			switch p.Electrical {
 			case "power_in":
 				hasPowerIn = true
@@ -182,12 +209,25 @@ func (e *Env) ensurePowerFlags(sch *sexp.Schematic) int {
 			cands = others
 		}
 		if len(cands) == 0 {
-			cands = []string{net.Pins[0].String()}
+			cands = []string{net.pins[0].String()}
 		}
 		sort.Strings(cands)
 		if target := bestFlagSpot(sch, syms, cands); target != "" {
 			if _, ok, _ := em.EmitPwrFlag(target); ok {
 				added++
+			} else {
+				// The widest spot can still be blocked (its stub would touch
+				// a foreign net); any other pin of the rail serves the ERC
+				// purpose just as well.
+				for _, c := range cands {
+					if c == target {
+						continue
+					}
+					if _, ok, _ := em.EmitPwrFlag(c); ok {
+						added++
+						break
+					}
+				}
 			}
 		}
 	}
@@ -225,6 +265,18 @@ func (p *PowerEmitter) EmitPwrFlag(targetRef string) (msg string, ok bool, dedup
 	tx, ty := sexp.SnapGrid(target.X), sexp.SnapGrid(target.Y)
 	dx, dy := perpOffset(target.Direction, 2.54)
 	sx, sy := sexp.SnapGrid(tx+dx), sexp.SnapGrid(ty+dy) // stub endpoint = flag pin
+	// The stub is wire, and wire may not touch anything that belongs to
+	// another net — the same rule the router, the exit stubs, the welder and
+	// the power placer each enforce for themselves. This emitter learned it
+	// last: a flag beside a 2-pin connector dropped its stub endpoint exactly
+	// on the neighbouring pin's tip, which KiCad reads as a connection, and
+	// GND arrived at +5V with nothing left for any later check to see.
+	if stubTouchesForeign(p.sch, tx, ty, sx, sy) {
+		sx, sy = sexp.SnapGrid(tx-dx), sexp.SnapGrid(ty-dy)
+		if stubTouchesForeign(p.sch, tx, ty, sx, sy) {
+			return fmt.Sprintf("skipped: no clear stub for PWR_FLAG at %s (both sides touch a foreign net)", targetRef), false, false
+		}
+	}
 	if p.reg.Has(libID, sx, sy) {
 		return fmt.Sprintf("dedup: PWR_FLAG already at (%.2f,%.2f)", sx, sy), true, true
 	}
@@ -257,6 +309,77 @@ func (p *PowerEmitter) EmitPwrFlag(targetRef string) (msg string, ok bool, dedup
 	}
 	p.sch.AddWire(sexp.NewWire(tx, ty, sx, sy))
 	return fmt.Sprintf("placed %s (PWR_FLAG) at (%.2f,%.2f)", ref, sx, sy), true, false
+}
+
+// stubTouchesForeign reports whether the stub wire (tx,ty)→(sx,sy) touches
+// any point owned by a net other than the target pin's: a pin tip, a label
+// anchor or a wire of another net. Touching one is a connection in KiCad and
+// merges the two nets silently — afterwards nothing can tell them apart, so
+// this is the only moment the check can be made. Any pin tip other than the
+// target's own blocks regardless of net: a dangling pin the stub lands on
+// would be adopted into the rail just as silently.
+func stubTouchesForeign(sch *sexp.Schematic, tx, ty, sx, sy float64) bool {
+	netOf := sexp.TracePointNets(sch)
+	ownNet := netOf[[2]float64{sexp.Round2(tx), sexp.Round2(ty)}]
+	tKey := [2]float64{sexp.Round2(tx), sexp.Round2(ty)}
+
+	onStub := func(x, y float64) bool {
+		const eps = 0.01
+		if math.Abs(tx-sx) < eps { // vertical stub
+			return math.Abs(x-tx) < eps && y >= math.Min(ty, sy)-eps && y <= math.Max(ty, sy)+eps
+		}
+		return math.Abs(y-ty) < eps && x >= math.Min(tx, sx)-eps && x <= math.Max(tx, sx)+eps
+	}
+	foreign := func(x, y float64) bool {
+		key := [2]float64{sexp.Round2(x), sexp.Round2(y)}
+		if key == tKey {
+			return false
+		}
+		return netOf[key] != ownNet || netOf[key] == ""
+	}
+
+	for _, sym := range sexp.ReadSymbols(sch) {
+		for _, pin := range sym.Pins {
+			if onStub(pin.X, pin.Y) && foreign(pin.X, pin.Y) {
+				return true
+			}
+		}
+	}
+	for _, c := range sch.Root().Children {
+		if c.Head() != "label" {
+			continue
+		}
+		if atN := sexp.FindList(c, "at"); atN != nil {
+			x, y := parseCoord(sexp.AtomValue(atN, 1)), parseCoord(sexp.AtomValue(atN, 2))
+			if onStub(x, y) && foreign(x, y) {
+				return true
+			}
+		}
+	}
+	for _, w := range sch.Wires() {
+		ax, ay, bx, by, ok := metrics.WireCoords(w)
+		if !ok {
+			continue
+		}
+		// Attribute the wire to a net by either endpoint; a wire of our own
+		// net along the stub is how the rail joins up, not a short.
+		wNet := netOf[[2]float64{sexp.Round2(ax), sexp.Round2(ay)}]
+		if wNet == "" {
+			wNet = netOf[[2]float64{sexp.Round2(bx), sexp.Round2(by)}]
+		}
+		if wNet == ownNet && wNet != "" {
+			continue
+		}
+		steps := int(math.Max(math.Abs(bx-ax), math.Abs(by-ay))/1.27) + 1
+		for i := 0; i <= steps; i++ {
+			t := float64(i) / float64(steps)
+			x, y := ax+(bx-ax)*t, ay+(by-ay)*t
+			if onStub(x, y) && [2]float64{sexp.Round2(x), sexp.Round2(y)} != tKey {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // bestFlagSpot returns the candidate pin ("REF.pin") whose flag position has

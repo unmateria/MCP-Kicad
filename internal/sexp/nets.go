@@ -161,16 +161,10 @@ func buildNetUF(sch *Schematic) (*netUF, map[[2]float64]string) {
 		uf.find(p) // register in UF even if isolated
 		byName[name] = append(byName[name], p)
 	}
-	for _, positions := range byName {
-		for i := 1; i < len(positions); i++ {
-			uf.union(positions[0], positions[i])
-		}
-	}
 
 	// 2b. Treat each power symbol as an implicit label whose name is the
 	// part name ("GND", "VCC", "+5V"…). Union the pin positions of every
 	// power symbol that shares the same part name.
-	powerByPart := make(map[string][][2]float64)
 	for _, sym := range ReadSymbols(sch) {
 		if !strings.HasPrefix(sym.LibID, "power:") || len(sym.Pins) == 0 {
 			continue
@@ -185,12 +179,19 @@ func buildNetUF(sch *Schematic) (*netUF, map[[2]float64]string) {
 		pin := sym.Pins[0]
 		p := netPt(pin.X, pin.Y)
 		uf.find(p)
-		powerByPart[partName] = append(powerByPart[partName], p)
-		// Also expose the implicit name to step 3 so the resulting Net.Name
-		// is the actual rail name, not "Net-(...)".
+		// The implicit name also reaches step 3 through byName, so the
+		// resulting Net.Name is the actual rail name, not "Net-(...)".
 		byName[partName] = append(byName[partName], p)
 	}
-	for _, positions := range powerByPart {
+
+	// Union every position sharing a name — labels AND power-symbol pins in
+	// one pass. Unioning the two groups separately left a local "+5V" label
+	// island and the "+5V" power rail as two traced nets, while KiCad reads
+	// them as one (measured on demo_voltage_regulator: the local label joins
+	// the like-named power net, no wire between them). That divergence let a
+	// PWR_FLAG land on a rail whose driver sat in the "other" island, and let
+	// the doc-label dropper cut the only tie between the two halves.
+	for _, positions := range byName {
 		for i := 1; i < len(positions); i++ {
 			uf.union(positions[0], positions[i])
 		}
