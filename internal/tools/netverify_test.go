@@ -120,3 +120,18 @@ func TestVerifyNetlistIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// A +3V3/GND pair sitting flush on the two pins of one connector is the
+// symbol's own pitch, not something the author can space out — the warning
+// must not fire for it. demo_mcu_i2c's J1 is the case that used to trip this.
+func TestFlushPowerPairsIgnoresOneComponentsOwnPins(t *testing.T) {
+	e := tidyEnv(t)
+	d := loadDesign(t, "demo_mcu_i2c.design.json")
+	sch, _, _, _, err := e.buildSchematic(d, buildOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flush := flushPowerPairs(sch); len(flush) != 0 {
+		t.Errorf("flush warning fired for pins of one connector: %v", flush)
+	}
+}

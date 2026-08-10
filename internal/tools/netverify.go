@@ -324,19 +324,57 @@ func matchesDecl(decl, ref, number string) bool {
 // shorted and verifies clean.
 func flushPowerPairs(sch *sexp.Schematic) []string {
 	type placed struct {
-		ref, rail      string
-		x1, y1, x2, y2 float64
+		ref, rail, serves string
+		x1, y1, x2, y2    float64
 	}
 	netOf := sexp.TracePointNets(sch)
+	allSyms := sexp.ReadSymbols(sch)
+
+	// Which component each power symbol serves, found by following its stub
+	// wire to the pin at the other end. Needed because "add cells between
+	// those parts" is only actionable advice when there are two parts: the
+	// two pins of one connector sit at a pitch the author cannot change, so
+	// a +3V3/GND pair flush on J1 is geometry, not a defect to report.
+	pinOwner := map[[2]float64]string{}
+	for _, s := range allSyms {
+		if strings.HasPrefix(s.LibID, "power:") {
+			continue
+		}
+		for _, p := range s.Pins {
+			pinOwner[[2]float64{sexp.Round2(p.X), sexp.Round2(p.Y)}] = s.Reference
+		}
+	}
+	servedBy := func(px, py float64) string {
+		anchor := [2]float64{sexp.Round2(px), sexp.Round2(py)}
+		for _, w := range sch.Wires() {
+			ax, ay, bx, by, ok := metrics.WireCoords(w)
+			if !ok {
+				continue
+			}
+			a := [2]float64{sexp.Round2(ax), sexp.Round2(ay)}
+			b := [2]float64{sexp.Round2(bx), sexp.Round2(by)}
+			if a == anchor {
+				if ref, ok := pinOwner[b]; ok {
+					return ref
+				}
+			}
+			if b == anchor {
+				if ref, ok := pinOwner[a]; ok {
+					return ref
+				}
+			}
+		}
+		return ""
+	}
 
 	var syms []placed
-	for _, s := range sexp.ReadSymbols(sch) {
+	for _, s := range allSyms {
 		if !strings.HasPrefix(s.LibID, "power:") || len(s.Pins) == 0 {
 			continue
 		}
 		rail := netOf[[2]float64{sexp.Round2(s.Pins[0].X), sexp.Round2(s.Pins[0].Y)}]
 		x1, y1, x2, y2 := metrics.BodyBBox(s)
-		syms = append(syms, placed{s.Reference, rail, x1, y1, x2, y2})
+		syms = append(syms, placed{s.Reference, rail, servedBy(s.Pins[0].X, s.Pins[0].Y), x1, y1, x2, y2})
 	}
 
 	const eps = 0.01
@@ -346,6 +384,9 @@ func flushPowerPairs(sch *sexp.Schematic) []string {
 			a, b := syms[i], syms[j]
 			if a.rail == b.rail {
 				continue // same rail flush is the intended bus alignment
+			}
+			if a.serves != "" && a.serves == b.serves {
+				continue // both pins of one part: their pitch is the symbol's, not the author's
 			}
 			if a.x1 <= b.x2+eps && b.x1 <= a.x2+eps && a.y1 <= b.y2+eps && b.y1 <= a.y2+eps {
 				out = append(out, fmt.Sprintf("%s (%s) and %s (%s)", a.ref, a.rail, b.ref, b.rail))

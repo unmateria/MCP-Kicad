@@ -85,6 +85,26 @@ func (e *Env) handleCheckComponentExistence(_ context.Context, _ *mcp.CallToolRe
 				return toolText(sb.String()), nil, nil
 			}
 		}
+	} else if symFile, _, ok := parts.FindSymbolLib(searchPath, q); ok {
+		// The query IS a library name ("Display_Character"). Answering "not
+		// found" to that is wrong twice over: the library exists, and listing
+		// its contents is the first reflex of anyone exploring. List it.
+		if all, err := parts.SearchSymbolsInFile(symFile, q, ""); err == nil && len(all) > 0 {
+			const maxList = 40
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "%q is a LIBRARY with %d symbols", q, len(all))
+			shown := all
+			if len(shown) > maxList {
+				shown = shown[:maxList]
+				fmt.Fprintf(&sb, " (showing first %d — repeat the query as %q with a keyword to narrow)", maxList, q+":<keyword>")
+			}
+			sb.WriteString(":\n")
+			for _, m := range shown {
+				fmt.Fprintf(&sb, "  %s\n", m)
+			}
+			sb.WriteString("Use one of these lib_ids with add_symbol or a .design.json source.")
+			return toolText(sb.String()), nil, nil
+		}
 	} else if matches := parts.FuzzySearchDirs(searchPath, q, 8); len(matches) > 0 {
 		// Unqualified query — cross-library fuzzy search by part name.
 		var sb strings.Builder

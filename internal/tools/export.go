@@ -147,7 +147,10 @@ func (e *Env) exportPDF(schPath, outDir, baseName string, schBytes []byte) (*mcp
 
 	var msg strings.Builder
 	fmt.Fprintf(&msg, "Schematic exported as PDF: %s\n", pdfPath)
-	fmt.Fprintf(&msg, "\nTo offer download buttons, read these MCP resources and call present_files:\n")
+	fmt.Fprintf(&msg, "\nTo offer download buttons, read these MCP resources and call present_files\n")
+	fmt.Fprintf(&msg, "(they carry the file CONTENT, so this works even when your filesystem access\n")
+	fmt.Fprintf(&msg, "does not cover the path above; if you need the files somewhere you can reach,\n")
+	fmt.Fprintf(&msg, "call set_output_dir with a directory inside your allowed folders and re-export):\n")
 	fmt.Fprintf(&msg, "  PDF:      %s\n", pdfURI)
 	if len(schBytes) > 0 {
 		fmt.Fprintf(&msg, "  KiCad:    %s\n", schURI)
@@ -188,7 +191,10 @@ func (e *Env) exportSVG(schPath, outDir, baseName string, schBytes []byte) (*mcp
 
 	var msg strings.Builder
 	fmt.Fprintf(&msg, "Schematic exported as SVG: %s\n", svgPath)
-	fmt.Fprintf(&msg, "\nTo offer download buttons, read these MCP resources and call present_files:\n")
+	fmt.Fprintf(&msg, "\nTo offer download buttons, read these MCP resources and call present_files\n")
+	fmt.Fprintf(&msg, "(they carry the file CONTENT, so this works even when your filesystem access\n")
+	fmt.Fprintf(&msg, "does not cover the path above; if you need the files somewhere you can reach,\n")
+	fmt.Fprintf(&msg, "call set_output_dir with a directory inside your allowed folders and re-export):\n")
 	fmt.Fprintf(&msg, "  SVG:      %s\n", svgURI)
 	if len(schBytes) > 0 {
 		fmt.Fprintf(&msg, "  KiCad:    %s\n", schURI)
