@@ -18,6 +18,7 @@ métricas y el informe de decisiones del compilador.
 | `nets` | Netlist global: nombre → lista de pines `REF.pin` (número o nombre). Un nombre que empieza por `_` es un net "silencioso": solo conectividad, sin etiqueta impresa cuando el cable ya lo une todo (nudos internos tipo R→LED). Reserva los nombres visibles para señales con significado. **El primer pin de la lista es donde se ancla la etiqueta del net**: si la etiqueta colisiona o se pierde, prueba a reordenar la lista para anclarla en un pin con más espacio alrededor. |
 | `power_nets` | Nets que son rails: nombre → `lib_id` del símbolo power. Nunca se rutean: un símbolo power por pin (política per-pin existente). |
 | `no_connect` | Lista de pines `REF.pin`, o el literal `"unused"` por referencia: todo pin no usado en `nets` ni plantillas recibe `no_connect`. El informe de compilación enumera cuáles fueron — revisar siempre esa lista. |
+| `label_nets` | Lista de nombres de `nets` que se conectan SOLO por etiquetas, sin intentar cable. Control de uniformidad del autor: si de dos señales gemelas una sale cableada y la otra no, listar las dos aquí lee mejor que la asimetría. Rechaza nombres no declarados y power nets. |
 
 ## Regla 0 — terminales
 

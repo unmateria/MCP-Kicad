@@ -151,8 +151,31 @@ func (d *Design) validate() error {
 	v.nets(d)
 	v.powerNets(d)
 	v.noConnect(d)
+	v.labelNets(d)
 
 	return errors.Join(v.errs...)
+}
+
+// labelNets rejects entries that name no declared net (a typo would silently
+// change nothing) and power nets (they are never routed anyway).
+func (v *validator) labelNets(d *Design) {
+	seen := make(map[string]bool, len(d.LabelNets))
+	for _, name := range d.LabelNets {
+		switch {
+		case name == "":
+			v.errorf("label_nets: net name must not be empty")
+		case seen[name]:
+			v.errorf("label_nets: %q is listed more than once", name)
+		default:
+			seen[name] = true
+			if _, ok := d.Nets[name]; !ok {
+				v.errorf("label_nets: %q is not a declared net", name)
+			}
+			if _, pwr := d.PowerNets[name]; pwr {
+				v.errorf("label_nets: %q is a power net — power nets are never routed, listing it here changes nothing", name)
+			}
+		}
+	}
 }
 
 // templateBlock checks the shape of refs/connect. Whether the template name

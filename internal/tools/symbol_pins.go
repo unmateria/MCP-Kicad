@@ -101,8 +101,12 @@ func (e *Env) handleSymbolPins(_ context.Context, _ *mcp.CallToolRequest, input 
 			sb.WriteString("\n")
 		}
 		lastSide = side
-		fmt.Fprintf(&sb, "%-6s %-14s %-12s %-6s (%.2f, %.2f)\n", p.Number, name, p.Electrical,
-			side, p.X-sym.X, p.Y-sym.Y)
+		mark := ""
+		if strings.Contains(name, ".") {
+			mark = "  ← dotted name: write the NUMBER"
+		}
+		fmt.Fprintf(&sb, "%-6s %-14s %-12s %-6s (%.2f, %.2f)%s\n", p.Number, name, p.Electrical,
+			side, p.X-sym.X, p.Y-sym.Y, mark)
 	}
 	fmt.Fprintf(&sb, "\nIn a .design.json source write either form: \"%s.%s\" or \"%s.%s\".\n",
 		"REF", pins[0].Number, "REF", displayPinName(pins[0]))

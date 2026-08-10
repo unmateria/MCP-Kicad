@@ -15,6 +15,11 @@ type Design struct {
 	Nets        map[string][]string `json:"nets,omitempty"`       // net name -> "REF.pin" list
 	PowerNets   map[string]string   `json:"power_nets,omitempty"` // net name -> power symbol lib_id
 	NoConnect   NoConnect           `json:"no_connect,omitempty"`
+	// LabelNets names nets that must be connected by labels only, never
+	// routed. The author's uniformity control: when one of two twin signals
+	// routes and the other cannot, listing both here reads better than the
+	// asymmetry.
+	LabelNets []string `json:"label_nets,omitempty"`
 }
 
 // Block is either a template instance (Template != "") or an explicit block

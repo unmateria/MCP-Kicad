@@ -184,6 +184,20 @@ func TestParseDesignRejects(t *testing.T) {
 			want: `net "B": pin "U1.1" is already claimed by net "A"`,
 		},
 		{
+			name: "label_nets names an undeclared net",
+			src: `{"version":1,"project":"p","blocks":[{"name":"b","symbols":[
+				{"ref":"U1","lib":"Device:R"}]}],
+				"nets":{"A":["U1.1"]},"label_nets":["B"]}`,
+			want: `label_nets: "B" is not a declared net`,
+		},
+		{
+			name: "label_nets names a power net",
+			src: `{"version":1,"project":"p","blocks":[{"name":"b","symbols":[
+				{"ref":"U1","lib":"Device:R"}]}],
+				"nets":{"GND":["U1.1"]},"power_nets":{"GND":"power:GND"},"label_nets":["GND"]}`,
+			want: `label_nets: "GND" is a power net`,
+		},
+		{
 			name: "arrange references unknown block",
 			src: `{"version":1,"project":"p","blocks":[{"name":"b","symbols":[
 				{"ref":"U1","lib":"Device:R"}]}],

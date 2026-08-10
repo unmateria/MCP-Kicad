@@ -105,6 +105,13 @@ func (e *Env) handleExportSchematicImage(_ context.Context, _ *mcp.CallToolReque
 	outDir := filepath.Dir(schPath)
 	if e.OutputDir != "" {
 		outDir = e.OutputDir
+		// A schematic that already lives inside output_dir keeps its own
+		// folder: exporting counter/counter.kicad_sch to the ROOT of
+		// output_dir separated the PDF from the project it belongs to.
+		if rel, err := filepath.Rel(e.OutputDir, filepath.Dir(schPath)); err == nil &&
+			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			outDir = filepath.Dir(schPath)
+		}
 		_ = os.MkdirAll(outDir, 0o755)
 	}
 	baseName := strings.TrimSuffix(filepath.Base(schPath), ".kicad_sch")

@@ -263,7 +263,9 @@ func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, b
 		done = append(done[:i], append([]string{desc}, done[i:]...)...)
 	}
 	note := fmt.Sprintf("layout: %s — each kept only after measuring that it left the whole sheet "+
-		"tidier (%d candidates tried). Copy them into the source to keep them.",
+		"tidier (%d candidates tried). Spacing entries show the exact place.cells value to paste "+
+		"into the source; router settings (turn cost, routing order) are the compiler's own and are "+
+		"re-found automatically on every compile — there is nothing to copy for those.",
 		strings.Join(done, ", "), tries)
 	return best, bestReport, bestDefects, note
 }

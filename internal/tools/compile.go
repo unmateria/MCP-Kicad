@@ -179,6 +179,27 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		conns = append(conns, NetConn{Net: name, Pins: pins})
 	}
 
+	// Nets the source pinned to labels are split off before wiregen and the
+	// router ever see them: the author's uniformity control. When one of two
+	// twin signals routes and the other cannot, "both as labels" reads better
+	// than the asymmetry, and only the author can make that call.
+	var labelConns []NetConn
+	if len(d.LabelNets) > 0 {
+		forced := make(map[string]bool, len(d.LabelNets))
+		for _, n := range d.LabelNets {
+			forced[n] = true
+		}
+		kept := conns[:0]
+		for _, c := range conns {
+			if forced[c.Net] {
+				labelConns = append(labelConns, c)
+			} else {
+				kept = append(kept, c)
+			}
+		}
+		conns = kept
+	}
+
 	// Wiregen pre-pass: closed-form cluster wiring, no repositioning (the
 	// author owns placement in this pipeline, always).
 	var compForNet map[string]map[string]int
@@ -217,6 +238,11 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 	rt.BendPenalty(o.BendPenalty)
 	totalWires, totalLabels, totalErrors := e.routeNets(sch, rt, conns, "auto", compForNet, &sb)
 	totalWires += wiregenWires
+	if len(labelConns) > 0 {
+		_, lLabels, lErrors := e.routeNets(sch, rt, labelConns, "label", nil, &sb)
+		totalLabels += lLabels
+		totalErrors += lErrors
+	}
 
 	// PWR_FLAGs BEFORE the gate. They bring a symbol and a stub wire of their
 	// own, and running them afterwards put geometry into the schematic that
@@ -321,6 +347,10 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		}
 		fmt.Fprintf(&sb, "text: %d residual collision(s), %.1f mm2%s\n      worst: %s\n",
 			len(cols), total, note, cols[0])
+	} else {
+		// Explicit, so the author never has to deduce the zero from a
+		// missing line.
+		fmt.Fprintf(&sb, "text: 0 collisions\n")
 	}
 
 	defects := VerifyNetlist(sch, d)
