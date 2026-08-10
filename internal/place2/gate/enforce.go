@@ -209,6 +209,13 @@ func netLowestPinRef(sch *sexp.Schematic) map[string]string {
 	return out
 }
 
+// Demote strips a net down to labels on demand: every wire segment and
+// orphaned junction goes, every non-power pin gets a label. The gate uses it
+// for geometry violations; callers use it for UNIFORMITY — when most of a
+// connector's twin nets ended up labeled, the one that routed reads worse
+// wired than labeled, and no geometric rule can know that.
+func Demote(sch *sexp.Schematic, netName string) int { return demoteNet(sch, netName) }
+
 // demoteNet removes every wire segment and now-orphaned junction belonging
 // to netName, then places a net label at every non-power pin of that net.
 // Returns the number of wire segments removed.

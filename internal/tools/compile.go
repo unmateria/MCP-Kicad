@@ -244,6 +244,14 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		totalErrors += lErrors
 	}
 
+	// A connector's bundle must read uniformly: if most of its twin nets
+	// ended up labeled, the wired minority is demoted to labels too. Changes
+	// geometry, so it runs before the gate like everything that does.
+	if demoted := bundleUniformity(sch, d); len(demoted) > 0 {
+		fmt.Fprintf(&sb, "bundle: demoted %s — a bundle where most lines are labels reads worse with one stray wire\n",
+			strings.Join(demoted, ", "))
+	}
+
 	// PWR_FLAGs BEFORE the gate. They bring a symbol and a stub wire of their
 	// own, and running them afterwards put geometry into the schematic that
 	// nothing ever checked — which is how a surviving cross-net crossing was

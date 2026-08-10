@@ -225,10 +225,13 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 //     into a label pair while its twin stayed wired, and no human draws one
 //     digit with wire and the other with tags.
 //
-//   - Detour: 70% over the Manhattan distance, with an absolute floor of 8
+//   - Detour: 70% over the Manhattan distance, with an absolute floor of 12
 //     grid cells. The ratio alone vetoed the C-shaped arc joining two pins on
 //     the same side of a symbol — 15 mm of wire for a 5 mm Manhattan is a 3×
-//     "detour" and an entirely normal drawing.
+//     "detour" and an entirely normal drawing — and the op-amp feedback wrap,
+//     output around the body to the inverting input, needs ~25 mm of detour
+//     and four corners for a few mm of Manhattan. Both are the most
+//     hand-drawn wires there are.
 func uglyPath(path [][2]float64) bool {
 	if len(path) < 2 {
 		return true
@@ -238,8 +241,8 @@ func uglyPath(path [][2]float64) bool {
 		plen += math.Abs(path[i][0]-path[i-1][0]) + math.Abs(path[i][1]-path[i-1][1])
 	}
 	manhattan := math.Abs(path[len(path)-1][0]-path[0][0]) + math.Abs(path[len(path)-1][1]-path[0][1])
-	maxBends := 3 + int(manhattan/50.8)
-	maxExtra := math.Max(0.7*manhattan, 8*2.54) + 2.54
+	maxBends := 4 + int(manhattan/50.8)
+	maxExtra := math.Max(0.7*manhattan, 12*2.54) + 2.54
 	return len(path)-2 > maxBends || plen > manhattan+maxExtra
 }
 
