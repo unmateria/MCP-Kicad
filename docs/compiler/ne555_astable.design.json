@@ -6,6 +6,12 @@
 
   "blocks": [
     {
+      "name": "input",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x02", "value": "VCC 5-15V", "mirror": true }
+      ]
+    },
+    {
       "name": "astable",
       "symbols": [
         { "ref": "U1", "lib": "Timer:NE555P", "value": "NE555" },
@@ -25,16 +31,26 @@
         { "ref": "D1", "lib": "Device:LED", "value": "LED", "rot": 90,
           "place": { "pin": "A", "at": "R3.2", "dir": "right", "cells": 3 } }
       ]
+    },
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x02", "value": "OUT" }
+      ]
     }
   ],
 
+  "arrange": [
+    ["input", "astable", "output"]
+  ],
+
   "nets": {
-    "VCC":   ["U1.8", "U1.4", "R1.1"],
-    "GND":   ["U1.1", "C1.2", "C2.2", "D1.K"],
+    "VCC":   ["J1.1", "U1.8", "U1.4", "R1.1"],
+    "GND":   ["J1.2", "U1.1", "C1.2", "C2.2", "D1.K", "J2.2"],
     "DISCH": ["U1.7", "R1.2", "R2.1"],
     "THR":   ["U1.6", "U1.2", "R2.2", "C1.1"],
     "CTL":   ["U1.5", "C2.1"],
-    "OUT":   ["U1.3", "R3.1"],
+    "OUT":   ["U1.3", "R3.1", "J2.1"],
     "_ANODE": ["R3.2", "D1.A"]
   },
 

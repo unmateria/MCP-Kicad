@@ -19,6 +19,18 @@ métricas y el informe de decisiones del compilador.
 | `power_nets` | Nets que son rails: nombre → `lib_id` del símbolo power. Nunca se rutean: un símbolo power por pin (política per-pin existente). |
 | `no_connect` | Lista de pines `REF.pin`, o el literal `"unused"` por referencia: todo pin no usado en `nets` ni plantillas recibe `no_connect`. El informe de compilación enumera cuáles fueron — revisar siempre esa lista. |
 
+## Regla 0 — terminales
+
+**Dale al circuito por dónde entrar y por dónde salir.** Un conector de
+entrada a la izquierda y otro de salida a la derecha
+(`Connector_Generic:Conn_01x02`, `Conn_01x03`…), con un `value` que diga qué
+es: `"VIN 12V"`, `"AUDIO OUT"`. El de entrada suele querer `"mirror": true`
+para que sus pines miren al circuito. Sin terminales el lector no puede saber
+qué hace el circuito por muy limpio que esté el cableado. Excepciones
+legítimas: un circuito cerrado sobre sí mismo (pila + LED) y un fragmento
+pensado para pegarse en una hoja mayor. `compile_schematic` avisa cuando no
+hay ninguno.
+
 ## Bloques
 
 Dos clases, distinguidas por la presencia de `template`:

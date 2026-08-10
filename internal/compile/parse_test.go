@@ -18,13 +18,17 @@ func TestParseDesignFileDemoFullBoard(t *testing.T) {
 	if d.Version != 1 || d.Project != "demo_full_board" || d.Sheet != "auto" {
 		t.Errorf("header = %d/%q/%q, want 1/demo_full_board/auto", d.Version, d.Project, d.Sheet)
 	}
-	if len(d.Blocks) != 3 {
-		t.Fatalf("len(Blocks) = %d, want 3", len(d.Blocks))
+	if len(d.Blocks) != 5 {
+		t.Fatalf("len(Blocks) = %d, want 5", len(d.Blocks))
 	}
 
-	power := d.Blocks[0]
+	if d.Blocks[0].Name != "input" || len(d.Blocks[0].Symbols) != 1 || d.Blocks[0].Symbols[0].Ref != "J1" {
+		t.Errorf("block 0 = %q, want input with J1", d.Blocks[0].Name)
+	}
+
+	power := d.Blocks[1]
 	if power.Name != "power" || power.Template != "voltage_regulator_linear" {
-		t.Errorf("block 0 = %q/%q, want power/voltage_regulator_linear", power.Name, power.Template)
+		t.Errorf("block 1 = %q/%q, want power/voltage_regulator_linear", power.Name, power.Template)
 	}
 	wantRefs := map[string]string{
 		"REG": "U2", "C_IN_BYP": "C4", "C_IN_BULK": "C5",
@@ -37,9 +41,9 @@ func TestParseDesignFileDemoFullBoard(t *testing.T) {
 		t.Errorf("power connect = %v", power.Connect)
 	}
 
-	mcu := d.Blocks[1]
+	mcu := d.Blocks[2]
 	if mcu.Name != "mcu" || len(mcu.Symbols) != 7 {
-		t.Fatalf("block 1 = %q with %d symbols, want mcu with 7", mcu.Name, len(mcu.Symbols))
+		t.Fatalf("block 2 = %q with %d symbols, want mcu with 7", mcu.Name, len(mcu.Symbols))
 	}
 	if mcu.Symbols[0].Ref != "U1" || mcu.Symbols[0].Place != nil {
 		t.Errorf("mcu anchor = %q place=%v, want U1 with no place", mcu.Symbols[0].Ref, mcu.Symbols[0].Place)
@@ -52,8 +56,11 @@ func TestParseDesignFileDemoFullBoard(t *testing.T) {
 		t.Errorf("C1 place = %+v", *c1.Place)
 	}
 
-	if d.Blocks[2].Name != "i2c" || d.Blocks[2].Template != "i2c_pullups" {
-		t.Errorf("block 2 = %q/%q, want i2c/i2c_pullups", d.Blocks[2].Name, d.Blocks[2].Template)
+	if d.Blocks[3].Name != "i2c" || d.Blocks[3].Template != "i2c_pullups" {
+		t.Errorf("block 3 = %q/%q, want i2c/i2c_pullups", d.Blocks[3].Name, d.Blocks[3].Template)
+	}
+	if d.Blocks[4].Name != "output" || len(d.Blocks[4].Symbols) != 1 || d.Blocks[4].Symbols[0].Ref != "J2" {
+		t.Errorf("block 4 = %q, want output with J2", d.Blocks[4].Name)
 	}
 
 	if !slices.Equal(d.NoConnect.Unused, []string{"U1"}) {
@@ -62,8 +69,8 @@ func TestParseDesignFileDemoFullBoard(t *testing.T) {
 	if len(d.NoConnect.Pins) != 0 {
 		t.Errorf("NoConnect.Pins = %v, want empty", d.NoConnect.Pins)
 	}
-	if len(d.Nets) != 6 {
-		t.Errorf("len(Nets) = %d, want 6", len(d.Nets))
+	if len(d.Nets) != 7 {
+		t.Errorf("len(Nets) = %d, want 7", len(d.Nets))
 	}
 	if !slices.Equal(d.Nets["XTAL1"], []string{"U1.7", "Y1.1", "C8.1"}) {
 		t.Errorf("Nets[XTAL1] = %v", d.Nets["XTAL1"])
@@ -71,7 +78,7 @@ func TestParseDesignFileDemoFullBoard(t *testing.T) {
 	if len(d.PowerNets) != 2 || d.PowerNets["+5V"] != "power:+5V" || d.PowerNets["GND"] != "power:GND" {
 		t.Errorf("PowerNets = %v", d.PowerNets)
 	}
-	if !slices.EqualFunc(d.Arrange, [][]string{{"power"}, {"mcu", "i2c"}}, slices.Equal) {
+	if !slices.EqualFunc(d.Arrange, [][]string{{"input", "power"}, {"mcu", "i2c", "output"}}, slices.Equal) {
 		t.Errorf("Arrange = %v", d.Arrange)
 	}
 }

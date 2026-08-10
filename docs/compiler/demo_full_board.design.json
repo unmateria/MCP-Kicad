@@ -6,6 +6,13 @@
 
   "blocks": [
     {
+      "name": "input",
+      "symbols": [
+        { "ref": "J1", "lib": "Connector_Generic:Conn_01x02", "value": "VIN 7-12V", "mirror": true }
+      ]
+    },
+
+    {
       "name": "power",
       "template": "voltage_regulator_linear",
       "refs": {
@@ -50,19 +57,27 @@
       "template": "i2c_pullups",
       "refs": { "R_SDA": "R1", "R_SCL": "R2" },
       "connect": { "SDA": "SDA", "SCL": "SCL", "VCC": "+5V" }
+    },
+
+    {
+      "name": "output",
+      "symbols": [
+        { "ref": "J2", "lib": "Connector_Generic:Conn_01x03", "value": "I2C" }
+      ]
     }
   ],
 
   "arrange": [
-    ["power"],
-    ["mcu", "i2c"]
+    ["input", "power"],
+    ["mcu", "i2c", "output"]
   ],
 
   "nets": {
+    "VIN":   ["J1.1"],
     "+5V":   ["U1.VCC", "U1.AVCC", "C1.1", "C2.1", "C3.1"],
-    "GND":   ["U1.GND", "C1.2", "C2.2", "C3.2", "C8.2", "C9.2"],
-    "SDA":   ["U1.27"],
-    "SCL":   ["U1.28"],
+    "GND":   ["J1.2", "U1.GND", "C1.2", "C2.2", "C3.2", "C8.2", "C9.2", "J2.3"],
+    "SDA":   ["U1.27", "J2.1"],
+    "SCL":   ["U1.28", "J2.2"],
     "XTAL1": ["U1.7", "Y1.1", "C8.1"],
     "XTAL2": ["U1.8", "Y1.2", "C9.1"]
   },

@@ -5,6 +5,17 @@
   "sheet": "auto",
   "blocks": [
     {
+      "name": "input",
+      "symbols": [
+        {
+          "ref": "J1",
+          "lib": "Connector_Generic:Conn_01x02",
+          "value": "VCC 5V",
+          "mirror": true
+        }
+      ]
+    },
+    {
       "name": "clock",
       "symbols": [
         {
@@ -176,6 +187,7 @@
   ],
   "arrange": [
     [
+      "input",
       "clock",
       "counter",
       "decoder",
@@ -184,6 +196,7 @@
   ],
   "nets": {
     "VCC": [
+      "J1.1",
       "U1.8",
       "U1.4",
       "R1.1",
@@ -194,6 +207,7 @@
       "U3.4"
     ],
     "GND": [
+      "J1.2",
       "U1.1",
       "C1.2",
       "C2.2",
