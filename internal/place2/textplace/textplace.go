@@ -72,18 +72,101 @@ func Autoplace(sch *sexp.Schematic) (fieldsMoved, labelsFlipped int) {
 		return 0, 0
 	}
 
-	obs, _, labels := buildScene(sch, syms)
+	obs, obsNames, labels := buildScene(sch, syms)
 
 	side := rowSides(syms, obs, insts)
 	for _, i := range symbolOrder(syms) {
 		fieldsMoved += placeFields(insts[i], syms[i], &obs, foreignBodies(syms, i), side[i])
 	}
 	for _, i := range labelOrder(labels) {
-		if flipLabel(&labels[i], obs) {
+		if flipLabel(&labels[i], obs, obsNames) {
+			labelsFlipped++
+		}
+	}
+	// Second chance for labels still colliding: slide along their own wire.
+	// Every point of the wire is the same electrical node, so the anchor may
+	// move to wherever a horizontal box fits — which is how the edge labels
+	// of a fan-out escape the corner where flipping alone only offers
+	// "vertical or overlapping".
+	for _, i := range labelOrder(labels) {
+		if slideLabel(sch, &labels[i], obs, obsNames) {
 			labelsFlipped++
 		}
 	}
 	return fieldsMoved, labelsFlipped
+}
+
+// slideLabel moves a still-colliding label along the wire its anchor sits on,
+// looking for the nearest spot where a HORIZONTAL box is completely clear.
+// Only wires with an ENDPOINT exactly at the anchor are followed — that point
+// identity is what guarantees the wire belongs to the label's own net. The
+// wire is split at the new anchor so the netlist tracer sees an endpoint
+// there (KiCad connects a label to the wire under it; our union-find joins
+// by point identity).
+func slideLabel(sch *sexp.Schematic, l *labelRef, obs []box, names []string) bool {
+	colliding := overlapSumForLabel(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), l, obs, names) > eps
+	vertical := normalizeAngle(l.rot) == 90 || normalizeAngle(l.rot) == 270
+	if !colliding && !vertical {
+		return false
+	}
+	const step = 1.27
+	for _, w := range sch.Wires() {
+		pts := sexp.FindList(w, "pts")
+		if pts == nil {
+			continue
+		}
+		var xy [][2]float64
+		for _, c := range pts.Children {
+			if c.Head() == "xy" {
+				xy = append(xy, [2]float64{parseF(sexp.AtomValue(c, 1)), parseF(sexp.AtomValue(c, 2))})
+			}
+		}
+		if len(xy) != 2 {
+			continue
+		}
+		var from, to [2]float64
+		switch {
+		case math.Abs(xy[0][0]-l.x) < eps && math.Abs(xy[0][1]-l.y) < eps:
+			from, to = xy[0], xy[1]
+		case math.Abs(xy[1][0]-l.x) < eps && math.Abs(xy[1][1]-l.y) < eps:
+			from, to = xy[1], xy[0]
+		default:
+			continue
+		}
+		length := math.Hypot(to[0]-from[0], to[1]-from[1])
+		if length < 2*step {
+			continue // nowhere to slide
+		}
+		ux, uy := (to[0]-from[0])/length, (to[1]-from[1])/length
+		// Interior points only, nearest first: the text stays as close to the
+		// pin it names as a clear spot allows. The far endpoint is excluded —
+		// it is usually another pin or a junction.
+		for d := step; d <= length-step+eps; d += step {
+			nx, ny := sexp.SnapGrid(from[0]+ux*d), sexp.SnapGrid(from[1]+uy*d)
+			for _, right := range [2]bool{false, true} {
+				b := labelBox(l.name, nx, ny, 0, right)
+				if overlapSumForLabel(b, l, obs, names) > eps {
+					continue
+				}
+				atN := sexp.FindList(l.node, "at")
+				if atN == nil || len(atN.Children) < 3 {
+					return false
+				}
+				atN.Children[1] = sexp.Atom(fmtCoord(nx))
+				atN.Children[2] = sexp.Atom(fmtCoord(ny))
+				for len(atN.Children) < 4 {
+					atN.Children = append(atN.Children, sexp.Atom("0"))
+				}
+				atN.Children[3] = sexp.Atom("0")
+				setLabelJustify(l.node, right)
+				sexp.SplitWiresAt(sch, nx, ny)
+				l.x, l.y, l.rot, l.justifyRight = nx, ny, 0, right
+				obs[l.obsIdx] = b
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // box is an axis-aligned rectangle in schematic coordinates (Y down).
@@ -133,6 +216,24 @@ func centeredBox(cx, cy, w, h float64) box {
 // overlapSum totals the area b shares with every obstacle, ignoring the
 // obstacle at index skip (pass -1 to skip none). A text item that is itself
 // registered as an obstacle must not score against its own box.
+// overlapSumForLabel is overlapSum minus the label's own net wire: a label
+// lying along the wire it names is the convention, not a collision — the same
+// exemption Collisions applies when counting. Scoring that overlap here was
+// what made every on-wire label prefer the vertical orientation: horizontal
+// runs ALONG the wire (big self-overlap), vertical only touches it.
+func overlapSumForLabel(b box, l *labelRef, obs []box, names []string) float64 {
+	total := 0.0
+	for i, o := range obs {
+		// obs grows as fields are placed; names does not. Anything past the
+		// original scene is field text, which is never the label's own wire.
+		if i == l.obsIdx || (i < len(names) && names[i] == "wire:"+l.name) {
+			continue
+		}
+		total += b.overlap(o)
+	}
+	return total
+}
+
 func overlapSum(b box, obs []box, skip int) float64 {
 	total := 0.0
 	for i, o := range obs {
@@ -478,9 +579,23 @@ var labelOrientations = [4]struct {
 	{90, true},  // reads downwards
 }
 
-func flipLabel(l *labelRef, obs []box) bool {
-	current := overlapSum(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), obs, l.obsIdx)
+func flipLabel(l *labelRef, obs []box, names []string) bool {
+	current := overlapSumForLabel(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), l, obs, names)
 	if current <= eps {
+		// Clean, but vertical: take a horizontal orientation at the same
+		// anchor if one is JUST as clean. A vertical label that cleared is
+		// still the thing a reviewer picks out as machine-drawn.
+		if a := normalizeAngle(l.rot); a != 90 && a != 270 {
+			return false
+		}
+		for _, o := range labelOrientations {
+			if o.rot != 0 {
+				continue
+			}
+			if overlapSumForLabel(labelBox(l.name, l.x, l.y, o.rot, o.right), l, obs, names) <= eps {
+				return applyLabelOrientation(l, obs, o.rot, o.right)
+			}
+		}
 		return false
 	}
 	// Horizontal text is preferred, not merely tied: a vertical label reads
@@ -493,7 +608,7 @@ func flipLabel(l *labelRef, obs []box) bool {
 		if rot == l.rot && right == l.justifyRight {
 			return current
 		}
-		return overlapSum(labelBox(l.name, l.x, l.y, rot, right), obs, l.obsIdx)
+		return overlapSumForLabel(labelBox(l.name, l.x, l.y, rot, right), l, obs, names)
 	}
 	bestRot, bestRight, bestScore := l.rot, l.justifyRight, current
 	pick := func(rot float64, right bool, s float64) {
@@ -523,6 +638,12 @@ func flipLabel(l *labelRef, obs []box) bool {
 	if bestRot == l.rot && bestRight == l.justifyRight {
 		return false
 	}
+	return applyLabelOrientation(l, obs, bestRot, bestRight)
+}
+
+// applyLabelOrientation rewrites a label node's angle and justification and
+// refreshes its obstacle box.
+func applyLabelOrientation(l *labelRef, obs []box, rot float64, right bool) bool {
 	atN := sexp.FindList(l.node, "at")
 	if atN == nil || len(atN.Children) < 3 {
 		return false
@@ -530,10 +651,10 @@ func flipLabel(l *labelRef, obs []box) bool {
 	for len(atN.Children) < 4 {
 		atN.Children = append(atN.Children, sexp.Atom("0"))
 	}
-	atN.Children[3] = sexp.Atom(fmtCoord(bestRot))
-	setLabelJustify(l.node, bestRight)
-	l.rot, l.justifyRight = bestRot, bestRight
-	obs[l.obsIdx] = labelBox(l.name, l.x, l.y, bestRot, bestRight)
+	atN.Children[3] = sexp.Atom(fmtCoord(rot))
+	setLabelJustify(l.node, right)
+	l.rot, l.justifyRight = rot, right
+	obs[l.obsIdx] = labelBox(l.name, l.x, l.y, rot, right)
 	return true
 }
 
