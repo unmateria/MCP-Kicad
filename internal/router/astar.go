@@ -4,6 +4,7 @@ package router
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
 	"strconv"
 
@@ -37,7 +38,16 @@ type Router struct {
 	hard    []bool // true → not traversable (symbol body interior)
 	soft    []int  // extra traversal cost (existing wire crossing)
 	bendPen int    // 0 = use the package default
+	// failReason says why the last Route returned nil — "" after a success.
+	// A nil route falls back to a net label, and "the router declined" with
+	// no reason recorded is exactly the answer that made an author ask "why??
+	// there is room to spare": whether the search ran out of budget, was
+	// walled in, or found only an over-length path decides what the fix is.
+	failReason string
 }
+
+// LastFailure explains the most recent nil result from Route/RouteAvoiding.
+func (r *Router) LastFailure() string { return r.failReason }
 
 // NewRouter builds the obstacle grid from placed symbols and existing wires.
 //
@@ -289,6 +299,11 @@ func (r *Router) Route(x1, y1, x2, y2 float64) [][2]float64 {
 	}
 
 	if goalKey == nil {
+		if expanded >= maxExpanded {
+			r.failReason = fmt.Sprintf("search budget exhausted (%d cells explored)", expanded)
+		} else {
+			r.failReason = "no path — the endpoint is walled in by bodies, foreign pins or foreign wires"
+		}
 		return nil
 	}
 
@@ -311,9 +326,11 @@ func (r *Router) Route(x1, y1, x2, y2 float64) [][2]float64 {
 	}
 	waypoints := mergeCollinear(raw)
 
-	if pathLength(waypoints) > MaxRouteLen {
+	if l := pathLength(waypoints); l > MaxRouteLen {
+		r.failReason = fmt.Sprintf("only path found is %.0f mm (limit %.0f)", l, MaxRouteLen)
 		return nil
 	}
+	r.failReason = ""
 	return waypoints
 }
 

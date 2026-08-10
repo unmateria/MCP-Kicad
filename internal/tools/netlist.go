@@ -215,8 +215,19 @@ func (e *Env) handleConnectNetlist(_ context.Context, _ *mcp.CallToolRequest, in
 }
 
 // uglyPath reports whether a routed path is too contorted to read as a
-// human-drawn wire: more than 3 bends, or a run that exceeds the Manhattan
-// distance between its endpoints by over 70% plus one grid step of slack.
+// human-drawn wire. Both thresholds scale with the run, because "winding" is
+// relative to how far the wire travels:
+//
+//   - Bends: 3 for a short hop, plus one for every 50.8 mm of Manhattan
+//     distance. A digit-select line crossing 140 mm of sheet with 4 corners
+//     is exactly how a person draws it; the flat limit of 3 turned that wire
+//     into a label pair while its twin stayed wired, and no human draws one
+//     digit with wire and the other with tags.
+//
+//   - Detour: 70% over the Manhattan distance, with an absolute floor of 8
+//     grid cells. The ratio alone vetoed the C-shaped arc joining two pins on
+//     the same side of a symbol — 15 mm of wire for a 5 mm Manhattan is a 3×
+//     "detour" and an entirely normal drawing.
 func uglyPath(path [][2]float64) bool {
 	if len(path) < 2 {
 		return true
@@ -226,7 +237,9 @@ func uglyPath(path [][2]float64) bool {
 		plen += math.Abs(path[i][0]-path[i-1][0]) + math.Abs(path[i][1]-path[i-1][1])
 	}
 	manhattan := math.Abs(path[len(path)-1][0]-path[0][0]) + math.Abs(path[len(path)-1][1]-path[0][1])
-	return len(path)-2 > 3 || plen > 1.7*manhattan+2.54
+	maxBends := 3 + int(manhattan/50.8)
+	maxExtra := math.Max(0.7*manhattan, 8*2.54) + 2.54
+	return len(path)-2 > maxBends || plen > manhattan+maxExtra
 }
 
 // wireSpan returns the diagonal of the bounding box containing every wire
@@ -436,10 +449,12 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 				usedLabel = true
 			} else {
 				path := routeWithExits(rt, from.x, from.y, from.dir, to.x, to.y, to.dir, foreignPins)
+				wasUgly := false
 				if path != nil && strategy == "auto" && uglyPath(path) {
 					// A snaking wire reads worse than a label pair: humans
 					// forgive a label, never a wire that wanders the sheet.
 					path = nil
+					wasUgly = true
 				}
 				if path != nil {
 					wires := pathToWires(path)
@@ -456,6 +471,16 @@ func (e *Env) routeNets(sch *sexp.Schematic, rt *router.Router, conns []NetConn,
 					totalErrors++
 					continue
 				} else {
+					// Say WHY the wire was not drawn. "The router declined"
+					// with no reason is the answer that leaves an author
+					// staring at empty space asking what was wrong with it.
+					reason := rt.LastFailure()
+					if wasUgly {
+						reason = "route found but too winding — a snake reads worse than a label"
+					}
+					if reason != "" {
+						netNotes = append(netNotes, fmt.Sprintf("%s→%s labeled: %s", from.ref, to.ref, reason))
+					}
 					usedLabel = true
 				}
 			}
@@ -650,22 +675,36 @@ func routeWithExits(rt *router.Router, x1, y1, dir1, x2, y2, dir2 float64, avoid
 	entryX, entryY, hasEntry := offsetByDir(x2, y2, dir2, stubLen)
 
 	// The stubs bypass the A* entirely — they are asserted, not searched — so
-	// nothing stopped one from landing exactly on another net's pin tip and
-	// connecting to it. A stub that would do that is dropped; head-on entry is
-	// a nicety, and a short is not.
-	blocked := func(x, y float64) bool {
-		key := [2]float64{sexp.Round2(x), sexp.Round2(y)}
+	// nothing stopped one from landing on another net's pin tip OR from being
+	// crossed mid-segment by a foreign wire (its sampled points are hard cells
+	// for the search, which the stub never consults). Checking only the stub's
+	// endpoint let a digit-select wire cross its twin INSIDE the 2.54 mm stub,
+	// where no later pass could do anything but demote the net. The whole
+	// segment is tested: any foreign point within half a grid cell of it
+	// drops the stub — head-on entry is a nicety, and a short is not.
+	blocked := func(ax, ay, bx, by float64) bool {
+		const tol = 0.65 // half a router cell: a sample this close is on the stub
 		for _, p := range avoid {
-			if p == key {
+			px, py := p[0], p[1]
+			if px < math.Min(ax, bx)-tol || px > math.Max(ax, bx)+tol ||
+				py < math.Min(ay, by)-tol || py > math.Max(ay, by)+tol {
+				continue
+			}
+			// Stubs are orthogonal: distance to the segment is the off-axis gap.
+			if math.Abs(ay-by) < 0.01 { // horizontal
+				if math.Abs(py-ay) <= tol {
+					return true
+				}
+			} else if math.Abs(px-ax) <= tol {
 				return true
 			}
 		}
 		return false
 	}
-	if hasExit && blocked(exitX, exitY) {
+	if hasExit && blocked(x1, y1, exitX, exitY) {
 		hasExit = false
 	}
-	if hasEntry && blocked(entryX, entryY) {
+	if hasEntry && blocked(x2, y2, entryX, entryY) {
 		hasEntry = false
 	}
 

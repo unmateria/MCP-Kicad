@@ -166,3 +166,26 @@ func TestWiregenFullNetKeepsDiscoveryLabel(t *testing.T) {
 		t.Fatalf("no LED_NODE label found — the net would be dropped (output:\n%s)", out)
 	}
 }
+
+// uglyPath must scale with the run: a long cross-sheet wire may carry more
+// corners, and a short same-side arc may exceed the detour ratio, without
+// either being a snake. The flat limits turned one of two twin digit-select
+// lines into a label pair while its twin stayed wired.
+func TestUglyPathScalesWithLength(t *testing.T) {
+	// 140 mm run with 4 bends: how a person draws a digit-select line.
+	long := [][2]float64{{0, 0}, {10, 0}, {10, 10}, {80, 10}, {80, 5}, {140, 5}}
+	if uglyPath(long) {
+		t.Error("a 140 mm run with 4 corners is not a snake")
+	}
+	// C-shaped arc joining two pins 5 mm apart on the same symbol side:
+	// 3x the Manhattan distance but only ~15 mm of wire.
+	arc := [][2]float64{{0, 0}, {7.62, 0}, {7.62, 5.08}, {0, 5.08}}
+	if uglyPath(arc) {
+		t.Error("a short same-side C arc is not a snake")
+	}
+	// A genuine snake on a short hop must still be rejected.
+	snake := [][2]float64{{0, 0}, {15, 0}, {15, 10}, {2, 10}, {2, 20}, {18, 20}, {18, 2.54}, {5.08, 2.54}}
+	if !uglyPath(snake) {
+		t.Error("a wandering 80 mm path for a 6 mm hop must stay ugly")
+	}
+}
