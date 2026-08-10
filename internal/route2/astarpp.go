@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 
+	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/sexp"
 )
 
@@ -37,7 +38,6 @@ const (
 	wireCrossCost = 50    // larger than legacy 20
 	maxExpanded   = 80000 // larger than legacy 50000
 	marginMM      = 30.0
-	pinLen        = 2.54
 
 	maxRouteLen = 300.0
 )
@@ -242,38 +242,12 @@ func (h *pqHeap) Pop() interface{} {
 	return e
 }
 
+// bodyBBox delegates to the gate's body model (pin span inset from the tips,
+// unioned with the drawn graphic) so this fallback router blocks the same
+// area the gate later judges. A pin-span-only model let routes through
+// one-column connector bodies, which the gate then demoted.
 func bodyBBox(s sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
-	const defaultHalf = 5.08
-	if len(s.Pins) == 0 {
-		return s.X - defaultHalf, s.Y - defaultHalf, s.X + defaultHalf, s.Y + defaultHalf
-	}
-	x1, y1 = s.Pins[0].X, s.Pins[0].Y
-	x2, y2 = x1, y1
-	for _, p := range s.Pins[1:] {
-		if p.X < x1 {
-			x1 = p.X
-		}
-		if p.Y < y1 {
-			y1 = p.Y
-		}
-		if p.X > x2 {
-			x2 = p.X
-		}
-		if p.Y > y2 {
-			y2 = p.Y
-		}
-	}
-	x1 += pinLen
-	y1 += pinLen
-	x2 -= pinLen
-	y2 -= pinLen
-	if x1 > x2 {
-		x1, x2 = x2, x1
-	}
-	if y1 > y2 {
-		y1, y2 = y2, y1
-	}
-	return
+	return metrics.BodyBBox(s)
 }
 
 func (r *astarPP) worldToCell(x, y float64) (int, int) {

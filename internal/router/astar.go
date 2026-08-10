@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 
+	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/sexp"
 )
 
@@ -19,9 +20,6 @@ const (
 	// MaxRouteLen is the maximum wire length (mm) before falling back to labels.
 	// Schematics commonly span 200+ mm, so keep this generous.
 	MaxRouteLen = 300.0
-	// pinLen is the KiCad standard pin length in mm.
-	// Pin tips (where wires connect) are pinLen OUTSIDE the symbol body edge.
-	pinLen = 2.54
 )
 
 const (
@@ -92,11 +90,16 @@ func NewRouter(syms []sexp.SchematicSymbol, existingWires []*sexp.Node) *Router 
 		soft: make([]int, cols*rows),
 	}
 
-	// Mark hard obstacles using the INNER body bbox (inset from pin tips).
-	// This guarantees that pin-tip cells are NOT inside the hard area,
-	// so the A* can always expand from any pin endpoint.
+	// Mark hard obstacles using the same body model the quality gate judges
+	// with (metrics.BodyBBox): the pin-span box inset from the tips, unioned
+	// with the symbol's drawn graphic (clamped off pin tips). Pin-tip cells
+	// stay outside the hard area so the A* can expand from any pin endpoint.
+	// Anything narrower — the pin span alone — is blind to bodies the pins do
+	// not enclose: a one-column connector has a degenerate pin span and its
+	// drawn rectangle used to be entirely routable, so the A* wired through
+	// it and the gate demoted the net afterwards.
 	for _, sym := range syms {
-		bx1, by1, bx2, by2 := symbolBodyBBox(sym)
+		bx1, by1, bx2, by2 := metrics.BodyBBox(sym)
 		r.markHardRect(bx1, by1, bx2, by2)
 	}
 
@@ -123,54 +126,6 @@ func (r *Router) bendPenalty() int {
 		return r.bendPen
 	}
 	return bendPenalty
-}
-
-// symbolBodyBBox returns the bounding box of the symbol's *body* (the drawn
-// rectangle), which is inset from the pin tip positions by pinLen (2.54 mm).
-//
-// KiCad standard pin lines are 2.54 mm long. FindPinPosition returns the pin
-// TIP (where wires connect). The body edge is 2.54 mm inward from the tip.
-// By using this tighter bbox as the hard obstacle, pin-tip cells stay outside
-// the blocked area so routing can always start and end at a pin.
-//
-// For single-axis components (resistor, capacitor — both pins on the same X
-// or Y line) the inset may invert the axes; they are swapped back to produce
-// a valid rectangle.
-func symbolBodyBBox(sym sexp.SchematicSymbol) (x1, y1, x2, y2 float64) {
-	const defaultHalf = 5.08 // fallback half-size when no pins
-	if len(sym.Pins) == 0 {
-		return sym.X - defaultHalf, sym.Y - defaultHalf,
-			sym.X + defaultHalf, sym.Y + defaultHalf
-	}
-	x1, y1 = sym.Pins[0].X, sym.Pins[0].Y
-	x2, y2 = x1, y1
-	for _, p := range sym.Pins[1:] {
-		if p.X < x1 {
-			x1 = p.X
-		}
-		if p.Y < y1 {
-			y1 = p.Y
-		}
-		if p.X > x2 {
-			x2 = p.X
-		}
-		if p.Y > y2 {
-			y2 = p.Y
-		}
-	}
-	// Inset: body edge is pinLen inward from the outermost pin tips.
-	x1 += pinLen
-	y1 += pinLen
-	x2 -= pinLen
-	y2 -= pinLen
-	// Restore valid ordering if inset inverted the axes (2-pin same-axis symbols).
-	if x1 > x2 {
-		x1, x2 = x2, x1
-	}
-	if y1 > y2 {
-		y1, y2 = y2, y1
-	}
-	return x1, y1, x2, y2
 }
 
 // astate is a grid position plus the direction we arrived from.
@@ -259,7 +214,7 @@ func (r *Router) Route(x1, y1, x2, y2 float64) [][2]float64 {
 	}
 
 	// Safety: pin cells must be traversable even if a bbox extends over them.
-	// (symbolBodyBBox already ensures this for well-formed symbols, but
+	// (metrics.BodyBBox already ensures this for well-formed symbols, but
 	// power symbols or custom footprints may still land inside a hard cell.)
 	startIdx := sr*r.cols + sc
 	endIdx := er*r.cols + ec

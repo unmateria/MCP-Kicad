@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"mcp-kicad/internal/place2/metrics"
 	"mcp-kicad/internal/sexp"
 )
 
@@ -172,7 +173,7 @@ func TestSymbolBodyBBox(t *testing.T) {
 			{X: 100, Y: 55},
 		},
 	}
-	x1, y1, x2, y2 := symbolBodyBBox(r)
+	x1, y1, x2, y2 := metrics.BodyBBox(r)
 	// Y inset: 47+2.54=49.54, 55-2.54=52.46
 	// X inset: 100+2.54=102.54, 100-2.54=97.46 → swapped: 97.46..102.54
 	if x1 >= x2 {
@@ -187,6 +188,41 @@ func TestSymbolBodyBBox(t *testing.T) {
 	}
 	if r.Pins[1].Y >= y1 && r.Pins[1].Y <= y2 {
 		t.Errorf("pin 2 Y=%.2f is inside body Y=[%.2f,%.2f]", r.Pins[1].Y, y1, y2)
+	}
+}
+
+// TestRouteAvoidsConnectorGraphic is the regression test for the demoted
+// connector nets: a one-column connector (Conn_01xN) has a degenerate pin
+// span, so the pin-derived body model blocked nothing and the A* routed
+// straight through the drawn rectangle. The router must use the same body
+// model as the gate (metrics.BodyBBox) so the graphic is a hard obstacle.
+func TestRouteAvoidsConnectorGraphic(t *testing.T) {
+	conn := sexp.SchematicSymbol{
+		X: 50, Y: 50,
+		Pins: []sexp.PinInfo{
+			{X: 40, Y: 45},
+			{X: 40, Y: 50},
+			{X: 40, Y: 55},
+		},
+		HasGraphic: true,
+		GraphicX1:  42.54, GraphicY1: 42,
+		GraphicX2: 52, GraphicY2: 58,
+	}
+	r := NewRouter([]sexp.SchematicSymbol{conn}, nil)
+
+	gx1, gy1, gx2, gy2 := metrics.BodyBBox(conn)
+	// The direct path from left of the connector to right of it crosses the
+	// drawn rectangle; the route must detour around it.
+	path := r.Route(30, 50, 70, 50)
+	if path == nil {
+		t.Fatal("expected a path around the connector graphic, got nil")
+	}
+	for i := 1; i < len(path); i++ {
+		if sexp.SegmentCrossesBox(path[i-1][0], path[i-1][1], path[i][0], path[i][1],
+			gx1, gy1, gx2, gy2) {
+			t.Errorf("segment (%.2f,%.2f)→(%.2f,%.2f) crosses connector body [%.2f,%.2f,%.2f,%.2f]",
+				path[i-1][0], path[i-1][1], path[i][0], path[i][1], gx1, gy1, gx2, gy2)
+		}
 	}
 }
 
