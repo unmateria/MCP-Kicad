@@ -272,8 +272,9 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 				descs[i] = dr.Net + " (no spacing would have kept it — the crowding is inside the symbol)"
 			}
 		}
-		fmt.Fprintf(&sb, "labels: dropped the documentation label of %s — the wire already carries the connection and the text was sitting on a neighbouring net.\n"+
-			"        Those nets now take KiCad's automatic name (Net-(U3-Qd) and such) instead of yours. If you need the name kept, give the parts more room so the label fits.\n",
+		fmt.Fprintf(&sb, "labels: WARNING — dropped the documentation label of %s. The connectivity is intact (the wire carries it), but the net's NAME is gone:\n"+
+			"        it will reach the PCB netlist as KiCad's automatic name (Net-(U3-Qd) and such) instead of yours. To keep the name: give the parts the room the\n"+
+			"        report quotes, or reorder the net's pin list so its FIRST pin is one with clear space around it (that is where the label anchors).\n",
 			strings.Join(descs, ", "))
 		textplace.Autoplace(sch) // re-place what is left, now that there is room
 	}

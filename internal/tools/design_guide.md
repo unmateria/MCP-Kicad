@@ -73,6 +73,10 @@ cable cuando existe corredor limpio.
     su LED no se etiqueta en un esquema a mano. Nómbralos con prefijo `_`
     (`_ANODE`) — conectan igual pero no imprimen etiqueta si el cable ya
     une todo.
+10c. **La etiqueta se ancla en el PRIMER pin de la lista del net.** Si el
+    informe dice que la etiqueta de un net se pierde o colisiona, reordena
+    la lista para que el primer pin sea el que tiene espacio libre alrededor
+    (`["RN1.9","U1.IO16"]` en vez de `["U1.IO16","RN1.9"]`) — suele bastar.
 11. **Los rails no se cablean**: cada pin de un power net recibe su símbolo
     (política per-pin). GND repetido muchas veces es lo profesional, no un
     defecto.

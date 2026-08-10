@@ -479,17 +479,45 @@ var labelOrientations = [4]struct {
 }
 
 func flipLabel(l *labelRef, obs []box) bool {
-	bestRot, bestRight := l.rot, l.justifyRight
-	bestScore := overlapSum(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), obs, l.obsIdx)
-	if bestScore <= eps {
+	current := overlapSum(labelBox(l.name, l.x, l.y, l.rot, l.justifyRight), obs, l.obsIdx)
+	if current <= eps {
 		return false
 	}
+	// Horizontal text is preferred, not merely tied: a vertical label reads
+	// worse and is the one thing a reviewer said "gives away the machine" on
+	// an otherwise clean sheet. So the vertical orientations only win when no
+	// horizontal one clears the overlap completely — least-overlap alone used
+	// to turn the edge labels of a fan-out sideways while a clean horizontal
+	// spot existed.
+	score := func(rot float64, right bool) float64 {
+		if rot == l.rot && right == l.justifyRight {
+			return current
+		}
+		return overlapSum(labelBox(l.name, l.x, l.y, rot, right), obs, l.obsIdx)
+	}
+	bestRot, bestRight, bestScore := l.rot, l.justifyRight, current
+	pick := func(rot float64, right bool, s float64) {
+		if s < bestScore-eps {
+			bestScore, bestRot, bestRight = s, rot, right
+		}
+	}
 	for _, o := range labelOrientations {
-		if o.rot == l.rot && o.right == l.justifyRight {
+		if o.rot != 0 {
 			continue
 		}
-		if s := overlapSum(labelBox(l.name, l.x, l.y, o.rot, o.right), obs, l.obsIdx); s < bestScore-eps {
-			bestScore, bestRot, bestRight = s, o.rot, o.right
+		pick(o.rot, o.right, score(o.rot, o.right))
+	}
+	if bestScore > eps {
+		// No horizontal clears. A vertical may take over, but only by earning
+		// it: at least halving the overlap. A near-tie stays horizontal —
+		// equal ugliness reads better lying down.
+		for _, o := range labelOrientations {
+			if o.rot == 0 {
+				continue
+			}
+			if s := score(o.rot, o.right); s <= eps || s < bestScore/2-eps {
+				pick(o.rot, o.right, s)
+			}
 		}
 	}
 	if bestRot == l.rot && bestRight == l.justifyRight {

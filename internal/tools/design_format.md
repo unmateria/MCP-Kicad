@@ -15,7 +15,7 @@ métricas y el informe de decisiones del compilador.
 | `sheet` | `"A4"`, `"A3"` o `"auto"` (elige la menor hoja donde cabe el contenido con márgenes de 12.7 mm). |
 | `blocks` | Bloques funcionales (ver abajo). Unidad de pensamiento = bloque de datasheet. |
 | `arrange` | Filas de bloques, arriba→abajo, cada fila izquierda→derecha. |
-| `nets` | Netlist global: nombre → lista de pines `REF.pin` (número o nombre). Un nombre que empieza por `_` es un net "silencioso": solo conectividad, sin etiqueta impresa cuando el cable ya lo une todo (nudos internos tipo R→LED). Reserva los nombres visibles para señales con significado. |
+| `nets` | Netlist global: nombre → lista de pines `REF.pin` (número o nombre). Un nombre que empieza por `_` es un net "silencioso": solo conectividad, sin etiqueta impresa cuando el cable ya lo une todo (nudos internos tipo R→LED). Reserva los nombres visibles para señales con significado. **El primer pin de la lista es donde se ancla la etiqueta del net**: si la etiqueta colisiona o se pierde, prueba a reordenar la lista para anclarla en un pin con más espacio alrededor. |
 | `power_nets` | Nets que son rails: nombre → `lib_id` del símbolo power. Nunca se rutean: un símbolo power por pin (política per-pin existente). |
 | `no_connect` | Lista de pines `REF.pin`, o el literal `"unused"` por referencia: todo pin no usado en `nets` ni plantillas recibe `no_connect`. El informe de compilación enumera cuáles fueron — revisar siempre esa lista. |
 
@@ -79,6 +79,9 @@ jamás escribe milímetros ni coordenadas absolutas.
   = unidad 1). En `nets` y en `place.at` el pin se califica `"REF.unidad.pin"`
   (`"U1.2.6"` = unidad 2, pin 6); con una sola unidad valen ambas formas.
   Repetir el par (ref, unit) o cambiar la `lib` entre unidades es error.
+- **Packs (R_Pack, redes de resistencias)**: sus pines tienen NOMBRES con punto
+  (`R1.1`), que chocan con la sintaxis multi-unidad de arriba. En esos símbolos
+  usa siempre el NÚMERO de pin (`"RN1.9"`), nunca el nombre.
 
 ## `arrange`
 

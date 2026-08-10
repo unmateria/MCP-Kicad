@@ -247,15 +247,20 @@ func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, b
 	if len(done) == 0 && len(added) == 0 {
 		return best, bestReport, bestDefects, ""
 	}
-	// Spacing is summarised per symbol: two accepted +1 bumps on R5 are one
-	// "R5 +2" the author can paste back, not two lines saying the same thing.
+	// Spacing is summarised per symbol, written as the exact edit the author
+	// pastes back: the final place.cells value, not a delta they must apply
+	// by hand ("+2 cells" left a session hunting for where to put the 2).
 	refs := make([]string, 0, len(added))
 	for ref := range added {
 		refs = append(refs, ref)
 	}
 	sort.Strings(refs)
 	for i, ref := range refs {
-		done = append(done[:i], append([]string{fmt.Sprintf("%s +%d cell(s)", ref, added[ref])}, done[i:]...)...)
+		desc := fmt.Sprintf("%s +%d cell(s)", ref, added[ref])
+		if cells, ok := finalCells(current, ref); ok {
+			desc = fmt.Sprintf("%s \"place\": {... \"cells\": %d} (was %d)", ref, cells, cells-added[ref])
+		}
+		done = append(done[:i], append([]string{desc}, done[i:]...)...)
 	}
 	note := fmt.Sprintf("layout: %s — each kept only after measuring that it left the whole sheet "+
 		"tidier (%d candidates tried). Copy them into the source to keep them.",
@@ -612,6 +617,19 @@ func refFromWith(with string) string {
 		}
 	}
 	return ""
+}
+
+// finalCells reads a symbol's current place.cells so the report can quote the
+// exact value to paste into the source.
+func finalCells(d *compile.Design, ref string) (int, bool) {
+	for _, b := range d.Blocks {
+		for _, s := range b.Symbols {
+			if s.Ref == ref && s.Place != nil {
+				return s.Place.Cells, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // bumpCells adds extra grid cells to one symbol's anchor. Reports whether it
