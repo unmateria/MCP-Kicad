@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -40,15 +39,17 @@ func (e *Env) handleSymbolPins(_ context.Context, _ *mcp.CallToolRequest, input 
 		return toolText(fmt.Sprintf("error: lib_id must be qualified as Library:Symbol (got %q). Use check_component_existence to find the library.", input.LibID)), nil, nil
 	}
 
-	sg, err := e.newLibGeom()
-	if err != nil {
-		return toolText(fmt.Sprintf("error: %v", err)), nil, nil
-	}
 	unit := input.Unit
 	if unit < 1 {
 		unit = 1
 	}
-	sym, err := sg.instance(input.LibID, unit)
+	// Probe with the REQUESTED rotation and mirror rather than transforming
+	// rot-0 geometry by hand: the instance goes through the same placement
+	// machinery production uses, so what this lists is exactly where the pins
+	// will be. A session designing a 7-segment fan-out trusted a pin-number
+	// ordering, got the fan crossed, and had to deduce the real vertical order
+	// from the rendered PNG — the geometric order below is that information.
+	sym, err := e.probePlaced(input.LibID, unit, input.Rot, input.Mirror)
 	if err != nil {
 		return toolText(fmt.Sprintf("error: %v\n\nUse check_component_existence to confirm the symbol id.", err)), nil, nil
 	}
@@ -57,34 +58,90 @@ func (e *Env) handleSymbolPins(_ context.Context, _ *mcp.CallToolRequest, input 
 	}
 
 	pins := append([]sexp.PinInfo(nil), sym.Pins...)
-	sort.SliceStable(pins, func(i, j int) bool { return pinNumLess(pins[i].Number, pins[j].Number) })
+	// Geometric order, the one the drawing has: by side, then top→bottom for
+	// vertical sides and left→right for horizontal ones. Wiring a row of pins
+	// to a row of targets in this order is what keeps the wires parallel.
+	sideRank := map[string]int{"left": 0, "right": 1, "up": 2, "down": 3}
+	sideOf := func(p sexp.PinInfo) string { return pinSide(p.Direction) }
+	sort.SliceStable(pins, func(i, j int) bool {
+		si, sj := sideOf(pins[i]), sideOf(pins[j])
+		if si != sj {
+			return sideRank[si] < sideRank[sj]
+		}
+		if si == "left" || si == "right" {
+			if pins[i].Y != pins[j].Y {
+				return pins[i].Y < pins[j].Y // KiCad's Y grows downward: top first
+			}
+		} else if pins[i].X != pins[j].X {
+			return pins[i].X < pins[j].X
+		}
+		return pinNumLess(pins[i].Number, pins[j].Number)
+	})
 
 	var sb strings.Builder
 	orient := ""
 	if input.Rot != 0 || input.Mirror {
-		orient = fmt.Sprintf("  [directions as placed with rot %d", input.Rot)
+		orient = fmt.Sprintf("  [as placed with rot %d", input.Rot)
 		if input.Mirror {
 			orient += " + mirror"
 		}
 		orient += "]"
 	}
-	fmt.Fprintf(&sb, "%s (unit %d) — %d pins%s\n\n", input.LibID, unit, len(pins), orient)
-	fmt.Fprintf(&sb, "%-6s %-14s %-12s %s\n", "PIN", "NAME", "TYPE", "SIDE")
+	fmt.Fprintf(&sb, "%s (unit %d) — %d pins, listed in DRAWING order (per side, top→bottom / left→right)%s\n\n",
+		input.LibID, unit, len(pins), orient)
+	fmt.Fprintf(&sb, "%-6s %-14s %-12s %-6s %s\n", "PIN", "NAME", "TYPE", "SIDE", "AT (mm, y grows down)")
+	lastSide := ""
 	for _, p := range pins {
 		name := p.Name
 		if name == "" || name == "~" {
 			name = "-"
 		}
-		fmt.Fprintf(&sb, "%-6s %-14s %-12s %s\n", p.Number, name, p.Electrical,
-			pinSide(orientedDir(p.Direction, input.Rot, input.Mirror)))
+		side := sideOf(p)
+		if side != lastSide && lastSide != "" {
+			sb.WriteString("\n")
+		}
+		lastSide = side
+		fmt.Fprintf(&sb, "%-6s %-14s %-12s %-6s (%.2f, %.2f)\n", p.Number, name, p.Electrical,
+			side, p.X-sym.X, p.Y-sym.Y)
 	}
 	fmt.Fprintf(&sb, "\nIn a .design.json source write either form: \"%s.%s\" or \"%s.%s\".\n",
-		sym.Reference[:0]+"REF", pins[0].Number, "REF", displayPinName(pins[0]))
+		"REF", pins[0].Number, "REF", displayPinName(pins[0]))
 	sb.WriteString("Names with braces or tildes (~{RST}) are awkward to type — use the pin NUMBER for those.\n")
+	sb.WriteString("If a pin NAME itself contains a dot (resistor packs call them R1.1), always use the NUMBER:\n")
+	sb.WriteString("\"REF.R1.1\" collides with the multi-unit syntax REF.unit.pin and is rejected as ambiguous.\n")
 	sb.WriteString("SIDE is the direction the pin points AWAY from the body: anchor the next part that way\n")
 	sb.WriteString("(\"place\": {\"pin\": ..., \"dir\": <side>}) and the wire comes out straight.\n")
+	sb.WriteString("To fan out one row of pins to another part in parallel wires, connect them in the\n")
+	sb.WriteString("order listed here — pin-number order is often NOT the vertical order of the drawing.\n")
 
 	return toolText(sb.String()), nil, nil
+}
+
+// probePlaced instantiates a symbol at the origin with the given rotation and
+// mirror in a scratch schematic and reads it back, so the pin coordinates are
+// the placed ones — the identical code path a real placement takes.
+func (e *Env) probePlaced(libID string, unit, rot int, mirror bool) (sexp.SchematicSymbol, error) {
+	sch, err := newEmptySchematic()
+	if err != nil {
+		return sexp.SchematicSymbol{}, err
+	}
+	if err := e.embedLibSymbol(sch, libID); err != nil {
+		return sexp.SchematicSymbol{}, fmt.Errorf("symbol %s: %w", libID, err)
+	}
+	pinNums := extractPinNumbers(sch, libID, unit)
+	libDef := sch.FindLibDef(libID)
+	inst := sexp.NewSymbolInstance(libID, "XPROBE1", "", "",
+		0, 0, float64(rot), unit, pinNums, sch.UUID(), false, false, libDef)
+	if mirror {
+		sexp.SetSymbolMirror(inst, "y")
+	}
+	sch.AddSymbol(inst)
+	for _, sym := range sexp.ReadSymbols(sch) {
+		if sym.Reference == "XPROBE1" {
+			return sym, nil
+		}
+	}
+	return sexp.SchematicSymbol{}, fmt.Errorf("geometry probe for %s unit %d produced no readable instance", libID, unit)
 }
 
 // displayPinName is the name a source would use, falling back to the number.
@@ -127,22 +184,3 @@ func atoiSafe(s string) (int, error) {
 	return n, err
 }
 
-// orientedDir is where a pin points once the symbol is rotated and (then)
-// mirrored — the same order KiCad applies, verified against kicad-cli.
-//
-// Working this out by hand is a real cost: a session building an H-bridge
-// needed "source up, drain down" from a MOSFET whose native orientation is the
-// reverse, and had to reason through rot 180 followed by a horizontal-only
-// mirror to predict where each of three pins would land. Asking is better than
-// deriving.
-func orientedDir(dir float64, rot int, mirror bool) float64 {
-	d := dir + float64(rot)
-	if mirror {
-		d = 180 - d // (mirror y) flips the X axis of the finished placement
-	}
-	d = math.Mod(d, 360)
-	if d < 0 {
-		d += 360
-	}
-	return d
-}
