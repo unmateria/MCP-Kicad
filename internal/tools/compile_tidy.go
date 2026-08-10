@@ -31,9 +31,10 @@ const tidyMaxExtraCells = 3
 // demoted to a pair of labels is not paid for by a shorter total length.
 type sheetScore struct {
 	defects    int     // netlist post-condition failures — nothing else matters
-	labels     int     // net labels: the gate demoting a net trades wires for these
+	labels     int     // LOAD-BEARING labels: the gate demoting a net trades wires for these
 	collisions int     // every text overlap the reader will see
 	area       float64 // mm² of that overlap
+	docDropped int     // documentation labels the compiler had to discard
 	overflow   float64 // how far past the sheet's usable area it spills
 	bends      int     // corners a reader's eye has to follow
 	wireLen    float64 // total wire, the tie-break that prefers the smaller change
@@ -69,8 +70,8 @@ func sheetFill(sch *sexp.Schematic) float64 {
 	return ((x2 - x1) * (y2 - y1)) / (p.w * p.h)
 }
 
-func scoreSheet(sch *sexp.Schematic, defects []NetDefect) sheetScore {
-	s := sheetScore{defects: len(defects)}
+func scoreSheet(sch *sexp.Schematic, defects []NetDefect, drops []labelDrop) sheetScore {
+	s := sheetScore{defects: len(defects), docDropped: len(drops)}
 	// EVERY collision counts here, intrinsic ones included. Excluding them was
 	// a measured mistake: greenhouse_controller went from 41 overlaps to 47
 	// because the search happily cleared a wire overlap by shoving a label onto
@@ -81,7 +82,11 @@ func scoreSheet(sch *sexp.Schematic, defects []NetDefect) sheetScore {
 		s.collisions++
 		s.area += c.Area
 	}
-	s.labels = len(sexp.FindAllLists(sch.Root(), "label"))
+	// Only labels that CARRY connectivity count on this axis. "Labels rank
+	// above collisions" is about demotions — a wire traded for a pair of tags
+	// — but counting every label made keeping a documentation name always a
+	// loss, so the search preferred sheets stripped of their net names.
+	s.labels = loadBearingLabels(sch)
 	if fill := sheetFill(sch); fill > maxFill {
 		s.overflow = fill - maxFill
 	}
@@ -89,6 +94,47 @@ func scoreSheet(sch *sexp.Schematic, defects []NetDefect) sheetScore {
 	s.bends = m.BendCount
 	s.wireLen = m.TotalWireLen
 	return s
+}
+
+// loadBearingLabels counts the labels whose removal would change what their
+// name connects — the same criterion dropCollidingDocLabels protects. A label
+// that only documents an already-wired net does not count.
+func loadBearingLabels(sch *sexp.Schematic) int {
+	seen := map[string]bool{}
+	var names []string
+	for _, l := range sexp.FindAllLists(sch.Root(), "label") {
+		name := sexp.StringValue(l, 1)
+		if name == "" {
+			name = sexp.AtomValue(l, 1)
+		}
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names) // determinism: the count must not depend on file order
+	count := 0
+	for _, name := range names {
+		before := pinsUnderName(sch, name)
+		beforeList := make([]string, 0, len(before))
+		for pin := range before {
+			beforeList = append(beforeList, pin)
+		}
+		sort.Strings(beforeList)
+		removed := sch.RemoveLabelsNamed(name)
+		if len(removed) == 0 {
+			continue
+		}
+		// Load-bearing means a MEMBER would be lost, not the name: the pins
+		// that were reachable under this name must still be one net.
+		if !netIntact(sch, beforeList) {
+			count += len(removed)
+		}
+		for _, n := range removed {
+			sch.AddLabel(n)
+		}
+	}
+	return count
 }
 
 // betterThan compares lexicographically. Ties are not improvements: a
@@ -103,6 +149,10 @@ func (a sheetScore) betterThan(b sheetScore) bool {
 		return a.collisions < b.collisions
 	case !nearlyEqual(a.area, b.area):
 		return a.area < b.area
+	case a.docDropped != b.docDropped:
+		// After area, before overflow: keeping a net's name never buys a new
+		// collision or more overlap, but it does outrank corners and wire.
+		return a.docDropped < b.docDropped
 	case !nearlyEqual(a.overflow, b.overflow):
 		// Ranked under the things that make a drawing WRONG or unreadable, and
 		// over the things that only make it long: a sheet that does not fit its
@@ -129,8 +179,8 @@ func nearlyEqual(a, b float64) bool { return a-b < 0.01 && b-a < 0.01 }
 // change is kept only if the sheet as a whole improved.
 //
 // It only ever ADDS cells, never removes them: the author's spacing is a floor.
-func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, bestDefects []NetDefect) (*sexp.Schematic, string, []NetDefect, string) {
-	bestScore := scoreSheet(best, bestDefects)
+func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, bestDefects []NetDefect, bestDrops []labelDrop) (*sexp.Schematic, string, []NetDefect, string) {
+	bestScore := scoreSheet(best, bestDefects, bestDrops)
 	// No early exit on the bend axis: it is always available, and a sheet with
 	// no text problem at all can still be routed with fewer corners.
 
@@ -143,7 +193,7 @@ func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, b
 
 	for tries < tidyBudget {
 		improved := false
-		cands := append(tidyCandidates(best, current, added), netOrderCandidates(best, current)...)
+		cands := append(tidyCandidates(best, current, added, bestDrops), netOrderCandidates(best, current)...)
 		cands = append(cands, bendCandidates(bendPen)...)
 		cands = append(cands, anchorPinCandidates(current)...)
 		cands = append(cands, netRouteOrderCandidates(netOrder)...)
@@ -164,11 +214,11 @@ func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, b
 			case "netorder":
 				opts.NetOrder = cand.extra
 			}
-			sch, report, defects, err := e.buildSchematic(trial, opts)
+			sch, report, defects, drops, err := e.buildSchematic(trial, opts)
 			if err != nil {
 				continue // an unbuildable candidate is simply not a candidate
 			}
-			score := scoreSheet(sch, defects)
+			score := scoreSheet(sch, defects, drops)
 			if !score.betterThan(bestScore) {
 				continue
 			}
@@ -185,7 +235,7 @@ func (e *Env) tidy(d *compile.Design, best *sexp.Schematic, bestReport string, b
 			if cand.kind != "space" {
 				done = append(done, cand.what)
 			}
-			current, best, bestReport, bestDefects, bestScore = trial, sch, report, defects, score
+			current, best, bestReport, bestDefects, bestDrops, bestScore = trial, sch, report, defects, drops, score
 			improved = true
 			break // re-measure before choosing again: the sheet just changed
 		}
@@ -466,7 +516,7 @@ func equalStrings(a, b []string) bool {
 // Each collision names the text's own symbol and what it sits on, and either
 // of those two moving apart could clear it — so both are offered, and the
 // search decides by measuring.
-func tidyCandidates(sch *sexp.Schematic, d *compile.Design, added map[string]int) []tidyCandidate {
+func tidyCandidates(sch *sexp.Schematic, d *compile.Design, added map[string]int, drops []labelDrop) []tidyCandidate {
 	placeable := map[string]bool{}
 	for _, b := range d.Blocks {
 		for _, s := range b.Symbols {
@@ -512,6 +562,29 @@ func tidyCandidates(sch *sexp.Schematic, d *compile.Design, added map[string]int
 			add(ref, need)
 			if need != 1 {
 				add(ref, 1)
+			}
+		}
+	}
+
+	// Dropped documentation labels leave no collision behind — the label is
+	// gone from the finished sheet — so the loop above can never propose the
+	// spacing that would have saved one. The drop record says exactly what it
+	// would have taken; offer that, on the collider and on every symbol of
+	// the net that lost its name.
+	for _, dr := range drops {
+		if dr.NeedCells < 1 {
+			continue // no spacing would have kept it
+		}
+		add(refFromWith(dr.With), dr.NeedCells)
+		if dr.NeedCells != 1 {
+			add(refFromWith(dr.With), 1)
+		}
+		for _, pin := range d.Nets[dr.Net] {
+			if ref, _, ok := strings.Cut(pin, "."); ok {
+				add(ref, dr.NeedCells)
+				if dr.NeedCells != 1 {
+					add(ref, 1)
+				}
 			}
 		}
 	}

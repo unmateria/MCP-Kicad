@@ -88,11 +88,11 @@ func TestCompiledDrawingStaysHumanSized(t *testing.T) {
 			}
 
 			d := loadDesign(t, tc.design)
-			sch, _, defects, err := e.buildSchematic(d, buildOpts{})
+			sch, _, defects, drops, err := e.buildSchematic(d, buildOpts{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			sch, _, _, _ = e.tidy(d, sch, "", defects)
+			sch, _, _, _ = e.tidy(d, sch, "", defects, drops)
 
 			got := symbolArea(sch, nil)
 			ratio := got / humanArea

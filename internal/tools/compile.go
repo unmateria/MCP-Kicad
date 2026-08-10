@@ -45,19 +45,19 @@ type buildOpts struct {
 	NetOrder    int // 0 = by name; 1 = fewest pins first; 2 = most pins first
 }
 
-func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, string, []NetDefect, error) {
+func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, string, []NetDefect, []labelDrop, error) {
 	sg, err := e.newLibGeom()
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 	layout, err := compile.Resolve(d, sg, tmplGeom{})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 
 	sch, err := newEmptySchematic()
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 	if d.Sheet == "A3" {
 		sch.SetPaper("A3")
@@ -76,7 +76,7 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		if blk.Template != "" {
 			tpl, err := templates.Get(blk.Template)
 			if err != nil {
-				return nil, "", nil, fmt.Errorf("block %s: %w", pb.Name, err)
+				return nil, "", nil, nil, fmt.Errorf("block %s: %w", pb.Name, err)
 			}
 			pinMap := map[string]string{}
 			for _, ep := range tpl.ExternalPins {
@@ -97,14 +97,14 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 				},
 			})
 			if err != nil {
-				return nil, "", nil, fmt.Errorf("block %s: stamp %s: %w", pb.Name, blk.Template, err)
+				return nil, "", nil, nil, fmt.Errorf("block %s: stamp %s: %w", pb.Name, blk.Template, err)
 			}
 			fmt.Fprintf(&sb, "  block %-8s template %s: %d symbols, %d wires\n",
 				pb.Name, blk.Template, len(res.PlacedRefs), res.WiresAdded)
 		} else {
 			for _, ps := range pb.Symbols {
 				if err := e.embedLibSymbol(sch, ps.LibID); err != nil {
-					return nil, "", nil, fmt.Errorf("block %s: %s: %w", pb.Name, ps.Ref, err)
+					return nil, "", nil, nil, fmt.Errorf("block %s: %s: %w", pb.Name, ps.Ref, err)
 				}
 				unit := ps.Unit
 				if unit < 1 {
@@ -129,11 +129,11 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 	}
 
 	if err := checkPowerRails(d); err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 
 	if err := checkPinContacts(sch, d); err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 
 	// Connection table, net names sorted for determinism. Power nets whose
@@ -170,7 +170,7 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		if len(pins) == 1 && netNameToPowerLibID(name) == "" {
 			pin, ok := sexp.FindPin(sch, pins[0])
 			if !ok {
-				return nil, "", nil, fmt.Errorf("net %s: pin %s not found", name, pins[0])
+				return nil, "", nil, nil, fmt.Errorf("net %s: pin %s not found", name, pins[0])
 			}
 			sch.AddLabel(sexp.NewNetLabel(name, pin.X, pin.Y, labelRotForDir(pin.Direction)))
 			fmt.Fprintf(&sb, "  %-20s [label]  %s — single-pin net labeled\n", name, pins[0])
@@ -261,10 +261,20 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		fmt.Fprintf(&sb, "textplace: %d fields repositioned, %d labels flipped\n", moved, flipped)
 	}
 
-	if dropped := dropCollidingDocLabels(sch, d); len(dropped) > 0 {
+	drops := dropCollidingDocLabels(sch, d)
+	if len(drops) > 0 {
+		descs := make([]string, len(drops))
+		for i, dr := range drops {
+			if dr.NeedCells > 0 {
+				descs[i] = fmt.Sprintf("%s (%d cell(s) more between it and %s would have kept it)",
+					dr.Net, dr.NeedCells, strings.Replace(dr.With, "wire:", "wire ", 1))
+			} else {
+				descs[i] = dr.Net + " (no spacing would have kept it — the crowding is inside the symbol)"
+			}
+		}
 		fmt.Fprintf(&sb, "labels: dropped the documentation label of %s — the wire already carries the connection and the text was sitting on a neighbouring net.\n"+
 			"        Those nets now take KiCad's automatic name (Net-(U3-Qd) and such) instead of yours. If you need the name kept, give the parts more room so the label fits.\n",
-			strings.Join(dropped, ", "))
+			strings.Join(descs, ", "))
 		textplace.Autoplace(sch) // re-place what is left, now that there is room
 	}
 
@@ -325,7 +335,7 @@ func (e *Env) buildSchematic(d *compile.Design, o buildOpts) (*sexp.Schematic, s
 		}
 	}
 
-	return sch, sb.String(), defects, nil
+	return sch, sb.String(), defects, drops, nil
 }
 
 // CompileDesign compiles a .design.json source into a complete schematic:
@@ -345,14 +355,14 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 		return nil, err
 	}
 
-	sch, report, defects, err := e.buildSchematic(d, buildOpts{})
+	sch, report, defects, drops, err := e.buildSchematic(d, buildOpts{})
 	if err != nil {
 		return nil, err
 	}
 	// Act on the measurement instead of only printing it: the collision report
 	// already says how many cells would clear each overlap, and until now the
 	// author had to apply that advice by hand, one recompile at a time.
-	sch, report, defects, tidyNote := e.tidy(d, sch, report, defects)
+	sch, report, defects, tidyNote := e.tidy(d, sch, report, defects, drops)
 
 	sb := strings.Builder{}
 	sb.WriteString(report)
@@ -615,7 +625,19 @@ func RegisterCompileTools(s *mcp.Server, env *Env) {
 // Only labels that actually collide are dropped, and only when the wiring
 // alone still holds the net together — connectivity is never traded for
 // tidiness.
-func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
+// labelDrop records one documentation label the compiler removed: which net
+// lost its name, what the text was sitting on, and how many more cells of
+// spacing would have kept it. Structured rather than a report string so the
+// tidy search can try exactly that spacing — the collision that killed the
+// label no longer exists on the finished sheet, so the sheet's own collision
+// list can never propose it.
+type labelDrop struct {
+	Net       string
+	With      string
+	NeedCells int
+}
+
+func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []labelDrop {
 	cols := textplace.Collisions(sch)
 	if len(cols) == 0 {
 		return nil
@@ -631,7 +653,7 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 		}
 	}
 
-	var dropped []string
+	var dropped []labelDrop
 	names := make([]string, 0, len(d.Nets))
 	for name := range d.Nets {
 		names = append(names, name)
@@ -650,21 +672,24 @@ func dropCollidingDocLabels(sch *sexp.Schematic, d *compile.Design) []string {
 		// And same-name islands connect BY the name (a local label reaches a
 		// like-named power rail with no wire between them), so single traced
 		// nets cannot be checked one at a time either. The criterion that
-		// matches KiCad's connectivity: the union of pins reachable under
-		// this name must be exactly the same once the labels are gone.
+		// matches KiCad's connectivity: every pin that was reachable under
+		// this name must still be co-net once the labels are gone — the net
+		// may lose its NAME (that is what dropping documentation means), but
+		// never a member.
 		before := pinsUnderName(sch, name)
 		removed := sch.RemoveLabelsNamed(name)
 		if len(removed) == 0 {
 			continue
 		}
-		intact := netIntact(sch, d.Nets[name]) && sameNetPins(before, pinsUnderName(sch, name))
+		beforeList := make([]string, 0, len(before))
+		for pin := range before {
+			beforeList = append(beforeList, pin)
+		}
+		sort.Strings(beforeList)
+		intact := netIntact(sch, d.Nets[name]) && netIntact(sch, beforeList)
 		if intact {
-			if c := cost[name]; c.NeedCells() > 0 {
-				dropped = append(dropped, fmt.Sprintf("%s (%d cell(s) more between it and %s would have kept it)",
-					name, c.NeedCells(), strings.Replace(c.With, "wire:", "wire ", 1)))
-			} else {
-				dropped = append(dropped, name+" (no spacing would have kept it — the crowding is inside the symbol)")
-			}
+			c := cost[name]
+			dropped = append(dropped, labelDrop{Net: name, With: c.With, NeedCells: c.NeedCells()})
 			continue
 		}
 		for _, n := range removed { // put them back: the net needs them
@@ -689,18 +714,6 @@ func pinsUnderName(sch *sexp.Schematic, name string) map[string]bool {
 		}
 	}
 	return pins
-}
-
-func sameNetPins(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if !b[k] {
-			return false
-		}
-	}
-	return true
 }
 
 // orderConns re-sorts the nets before routing. Name order (mode 0) is the

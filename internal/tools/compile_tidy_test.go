@@ -35,7 +35,7 @@ func loadDesign(t *testing.T, name string) *compile.Design {
 
 func countCollisions(t *testing.T, e *Env, d *compile.Design) (total int, area float64) {
 	t.Helper()
-	sch, _, _, err := e.buildSchematic(d, buildOpts{})
+	sch, _, _, _, err := e.buildSchematic(d, buildOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +57,11 @@ func TestTidy_ClearsTextTheCompilerMeasured(t *testing.T) {
 		t.Skip("this design no longer has collisions to clear")
 	}
 
-	sch, _, defects, err := e.buildSchematic(d, buildOpts{})
+	sch, _, defects, drops, err := e.buildSchematic(d, buildOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sch, _, defects, note := e.tidy(d, sch, "", defects)
+	sch, _, defects, note := e.tidy(d, sch, "", defects, drops)
 
 	after := 0
 	afterArea := 0.0
@@ -92,11 +92,16 @@ func TestTidy_LeavesACleanSheetAlone(t *testing.T) {
 		t.Skipf("this design has %d collisions; it is not the clean case", before)
 	}
 
-	sch, _, defects, err := e.buildSchematic(d, buildOpts{})
+	sch, _, defects, drops, err := e.buildSchematic(d, buildOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, note := e.tidy(d, sch, "", defects)
+	if len(drops) != 0 {
+		// A dropped documentation label IS something to fix now: tidy is
+		// expected to spend spacing to keep the net's name.
+		t.Skipf("this design drops %d doc label(s); it is not the clean case", len(drops))
+	}
+	_, _, _, note := e.tidy(d, sch, "", defects, drops)
 	if note != "" {
 		t.Errorf("nothing to fix, yet tidy changed the placement: %q", note)
 	}
@@ -121,11 +126,11 @@ func TestTidy_DoesNotMutateTheSourceDesign(t *testing.T) {
 		}
 	}
 
-	sch, _, defects, err := e.buildSchematic(d, buildOpts{})
+	sch, _, defects, drops, err := e.buildSchematic(d, buildOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.tidy(d, sch, "", defects)
+	e.tidy(d, sch, "", defects, drops)
 
 	i := 0
 	for _, b := range d.Blocks {
@@ -150,11 +155,11 @@ func TestTidy_IsDeterministic(t *testing.T) {
 	d := loadDesign(t, "contador_9_0.design.json")
 
 	run := func() string {
-		sch, _, defects, err := e.buildSchematic(d, buildOpts{})
+		sch, _, defects, drops, err := e.buildSchematic(d, buildOpts{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, _, note := e.tidy(d, sch, "", defects)
+		_, _, _, note := e.tidy(d, sch, "", defects, drops)
 		return note
 	}
 	first, second := run(), run()
@@ -187,6 +192,78 @@ func TestBumpCellsOnlyGrows(t *testing.T) {
 	}
 }
 
+// The score's axes must rank in the documented order: a kept net name
+// (docDropped) outranks corners and wire but never buys a collision, more
+// overlap area, or a load-bearing label.
+func TestBetterThanRanksDocDrops(t *testing.T) {
+	base := sheetScore{labels: 2, collisions: 3, area: 5, docDropped: 2, bends: 10, wireLen: 100}
+
+	fewerDrops := base
+	fewerDrops.docDropped = 1
+	fewerDrops.bends = 20 // pays in corners
+	if !fewerDrops.betterThan(base) {
+		t.Error("keeping a net name must be worth extra corners")
+	}
+
+	dropForCollision := base
+	dropForCollision.docDropped = 1
+	dropForCollision.collisions = 4
+	if dropForCollision.betterThan(base) {
+		t.Error("keeping a net name must never buy a new collision")
+	}
+
+	dropForLabel := base
+	dropForLabel.docDropped = 0
+	dropForLabel.labels = 3
+	if dropForLabel.betterThan(base) {
+		t.Error("keeping a net name must never cost a load-bearing label")
+	}
+
+	dropForArea := base
+	dropForArea.docDropped = 0
+	dropForArea.area = 6
+	if dropForArea.betterThan(base) {
+		t.Error("keeping a net name must never buy more overlap area")
+	}
+}
+
+// A dropped documentation label leaves no collision on the finished sheet, so
+// the collision loop can never propose the spacing that would have saved it.
+// The drop record must generate those candidates instead.
+func TestTidyCandidatesFromLabelDrops(t *testing.T) {
+	d := &compile.Design{
+		Blocks: []compile.Block{{
+			Name: "b",
+			Symbols: []compile.Symbol{
+				{Ref: "U1", Lib: "Device:R"},
+				{Ref: "R1", Lib: "Device:R", Place: &compile.Place{Pin: "1", At: "U1.1", Dir: "left", Cells: 3}},
+			},
+		}},
+		Nets: map[string][]string{"SDA": {"U1.1", "R1.1"}},
+	}
+	sch, err := newEmptySchematic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	drops := []labelDrop{{Net: "SDA", With: "no-connect U1.2", NeedCells: 1}}
+	cands := tidyCandidates(sch, d, map[string]int{}, drops)
+	found := false
+	for _, c := range cands {
+		if c.kind == "space" && c.ref == "R1" && c.extra == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no space candidate for R1 from the drop record; got %+v", cands)
+	}
+
+	// A drop no spacing could have saved must generate nothing.
+	none := tidyCandidates(sch, d, map[string]int{}, []labelDrop{{Net: "SDA", NeedCells: 0}})
+	if len(none) != 0 {
+		t.Errorf("unsavable drop produced candidates: %+v", none)
+	}
+}
+
 func TestRefFromWith(t *testing.T) {
 	cases := map[string]string{
 		"body U1":         "U1",
@@ -215,11 +292,11 @@ func TestTidy_CandidateSupplyAcrossTheCorpus(t *testing.T) {
 		"hbridge_dc_motor.design.json", "opto_relay_driver.design.json",
 	} {
 		d := loadDesign(t, name)
-		sch, _, _, err := e.buildSchematic(d, buildOpts{})
+		sch, _, _, _, err := e.buildSchematic(d, buildOpts{})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		space := len(tidyCandidates(sch, d, map[string]int{}))
+		space := len(tidyCandidates(sch, d, map[string]int{}, nil))
 		order := netOrderCandidates(sch, d)
 		names := make([]string, 0, len(order))
 		for _, c := range order {
