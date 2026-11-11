@@ -4,9 +4,10 @@ import "strings"
 
 // Violation is an ERC/DRC violation with type, description, and severity.
 type Violation struct {
-	Type        string // machine-readable from JSON "type" field
-	Description string // human-readable from JSON "description" field
-	Severity    string // "error" or "warning"
+	Type        string   // machine-readable from JSON "type" field
+	Description string   // human-readable from JSON "description" field
+	Severity    string   // "error" or "warning"
+	Items       []string // what the violation involves, e.g. "PTH pad 1 [GND] of BT1"
 }
 
 // ViolationCategory classifies who is responsible for the issue.

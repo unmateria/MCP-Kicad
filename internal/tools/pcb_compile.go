@@ -98,29 +98,43 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 		rr := pcbgen.Route(placed, nl.Nets, pr.Outline, rules)
 		routing = &rr
 	}
-	rep, err := writeBoard(cli, pcbPath, placed, pr.Outline, nl, routing, rules)
-	if err != nil {
-		return nil, err
+	// KiCad is the judge. Each variant is written and checked in turn, best
+	// first, and the first one with no error-level DRC violation is kept:
+	// a ground plane with thermal reliefs, then with solid pad connections
+	// (a relief can be starved of spokes by the tracks around its pad), then
+	// the routing without a plane, then no routing at all. The board never
+	// goes out wrong; the report says what was given up and why.
+	type variant struct {
+		routing *pcbgen.RouteResult
+		solid   bool
+		label   string
 	}
-	// The router's geometry is conservative by construction, but KiCad is the
-	// judge: routing that breaks any error-level rule is thrown away whole and
-	// the board goes out unrouted rather than wrong.
-	discarded := ""
+	var variants []variant
 	if routing != nil {
-		var errs []string
-		for _, v := range rep.Violations {
-			if v.Severity == "error" {
-				errs = append(errs, v.Type)
-			}
+		if routing.PlaneNet != "" {
+			variants = append(variants, variant{routing, false, "ground plane with thermal reliefs"},
+				variant{routing, true, "ground plane with solid pad connections"})
+			bare := *routing
+			bare.PlaneNet = ""
+			variants = append(variants, variant{&bare, false, "routing without a ground plane"})
+		} else {
+			variants = append(variants, variant{routing, false, "routing"})
 		}
-		if len(errs) > 0 {
-			discarded = fmt.Sprintf("routing DISCARDED: KiCad's DRC found %d error(s) in it (%s) — the board below is unrouted; this is a router bug worth reporting\n",
-				len(errs), strings.Join(dedup(errs), ", "))
-			routing = nil
-			if rep, err = writeBoard(cli, pcbPath, placed, pr.Outline, nl, nil, rules); err != nil {
-				return nil, err
-			}
+	}
+	variants = append(variants, variant{nil, false, "unrouted board"})
+	var rep *kicadcli.BoardReport
+	var discarded strings.Builder
+	for i, v := range variants {
+		rules.PlaneSolid = v.solid
+		if rep, err = writeBoard(cli, pcbPath, placed, pr.Outline, nl, v.routing, rules); err != nil {
+			return nil, err
 		}
+		errs := errorTypes(rep)
+		if len(errs) == 0 || i == len(variants)-1 {
+			routing = v.routing
+			break
+		}
+		fmt.Fprintf(&discarded, "%s rejected by KiCad's DRC (%s); trying the next option\n", v.label, strings.Join(errs, ", "))
 	}
 
 	var sb strings.Builder
@@ -128,10 +142,23 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 		strings.TrimSuffix(filepath.Base(pcbPath), ".kicad_pcb"), len(placed), pr.Outline.W(), pr.Outline.H())
 	fmt.Fprintf(&sb, "placement: schematic layout ×%.2f; %d decoupling cap(s) at their IC's power pin, %d connector(s) on the edge; ratsnest HPWL %.0f mm\n",
 		pr.Scale, pr.Decaps, pr.Edge, pr.HPWL)
-	sb.WriteString(discarded)
+	sb.WriteString(discarded.String())
 	if routing != nil {
 		fmt.Fprintf(&sb, "routing: %d of %d connections, %d via(s), %d iteration(s); track %.2f mm, clearance %.2f mm\n",
 			routing.Routed, routing.Connections, len(routing.Vias), routing.Iterations, rules.Track, rules.Clearance)
+		if len(routing.PowerNets) > 0 {
+			fmt.Fprintf(&sb, "  power width %.2f mm: %s\n", rules.PowerTrack, strings.Join(routing.PowerNets, ", "))
+		}
+		if routing.PlaneNet != "" {
+			joint := "thermal reliefs"
+			if rules.PlaneSolid {
+				joint = "solid connections"
+			}
+			fmt.Fprintf(&sb, "  ground plane: %s poured over the back layer, pads on %s\n", routing.PlaneNet, joint)
+		}
+		if routing.Improved > 0 {
+			fmt.Fprintf(&sb, "  improvement pass made %d net(s) shorter or with fewer vias/bends\n", routing.Improved)
+		}
 		if len(routing.Unrouted) > 0 {
 			fmt.Fprintf(&sb, "  left for you to route: %s\n", strings.Join(routing.Unrouted, ", "))
 		}
@@ -174,13 +201,10 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 	}
 
 	res := &PCBResult{PCBPath: pcbPath, Report: sb.String()}
-	if png, err := renderBoardPNG(e.KicadCLI, pcbPath); err == nil {
-		res.PNGPath = strings.TrimSuffix(pcbPath, ".kicad_pcb") + "_pcb.png"
-		if os.WriteFile(res.PNGPath, png, 0o644) != nil {
-			res.PNGPath = ""
-		}
+	if p := strings.TrimSuffix(pcbPath, ".kicad_pcb") + "_pcb.png"; func() bool { _, err := os.Stat(p); return err == nil }() {
+		res.PNGPath = p
 	} else {
-		res.Report += fmt.Sprintf("render skipped: %v\n", err)
+		res.Report += "render skipped: kicad-cli could not plot the board\n"
 	}
 	if len(defects) > 0 {
 		return res, fmt.Errorf("board post-condition failed: %s", strings.Join(dedup(defects), "; "))
@@ -203,7 +227,14 @@ func writeBoard(cli *kicadcli.Runner, pcbPath string, placed []*pcbgen.Part, out
 	if err := cli.Run("pcb", "upgrade", "--force", pcbPath); err != nil {
 		return nil, fmt.Errorf("KiCad could not read the generated board: %w", err)
 	}
-	return cli.BoardDRC(pcbPath)
+	// The preview is drawn here, before the ground plane is filled: a filled
+	// back layer paints over every back-layer track in the same colour.
+	previewPath := strings.TrimSuffix(pcbPath, ".kicad_pcb") + "_pcb.png"
+	os.Remove(previewPath)
+	if png, err := renderBoardPNG(cli.CLIPath, pcbPath); err == nil {
+		_ = os.WriteFile(previewPath, png, 0o644)
+	}
+	return cli.BoardDRC(pcbPath, routing != nil && routing.PlaneNet != "")
 }
 
 func exportNetlist(cli *kicadcli.Runner, schPath string) (*pcbgen.Netlist, error) {
@@ -338,4 +369,22 @@ func (e *Env) handleCompilePCB(_ context.Context, _ *mcp.CallToolRequest, input 
 		}
 	}
 	return result, nil, nil
+}
+
+// errorTypes lists the error-level DRC violations of a board, deduplicated.
+// Each entry names the type and the items involved, so the report says
+// which pad, not only which rule.
+func errorTypes(rep *kicadcli.BoardReport) []string {
+	var out []string
+	for _, v := range rep.Violations {
+		if v.Severity != "error" {
+			continue
+		}
+		e := v.Type
+		if len(v.Items) > 0 {
+			e += ": " + strings.Join(v.Items, " / ")
+		}
+		out = append(out, e)
+	}
+	return dedup(out)
 }

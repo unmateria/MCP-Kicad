@@ -55,13 +55,12 @@ func TestRouteKeepsClearance(t *testing.T) {
 	if res.Routed != res.Connections {
 		t.Errorf("routed %d of %d; unrouted %v", res.Routed, res.Connections, res.Unrouted)
 	}
-	need := r.Track + r.Clearance - 1e-6
 	for i, a := range res.Segments {
 		for _, b := range res.Segments[i+1:] {
 			if a.Net == b.Net || a.Layer != b.Layer {
 				continue
 			}
-			if d := segDist(a.X1, a.Y1, a.X2, a.Y2, b.X1, b.Y1, b.X2, b.Y2); d < need {
+			if d := segDist(a.X1, a.Y1, a.X2, a.Y2, b.X1, b.Y1, b.X2, b.Y2); d < (a.Width+b.Width)/2+r.Clearance-1e-6 {
 				t.Errorf("%s and %s tracks %.3f mm apart on layer %d", a.Net, b.Net, d, a.Layer)
 			}
 		}
@@ -80,8 +79,8 @@ func TestRouteKeepsClearance(t *testing.T) {
 				}
 				// testR pads are 1.6 mm circles.
 				d := ptSeg(p.X+pos[0], p.Y+pos[1], s.X1, s.Y1, s.X2, s.Y2) - 0.8
-				if d < r.Track/2+r.Clearance-1e-6 {
-					t.Errorf("%s track %.3f mm from %s.%s", s.Net, d-r.Track/2, p.Comp.Ref, num)
+				if d < s.Width/2+r.Clearance-1e-6 {
+					t.Errorf("%s track %.3f mm from %s.%s", s.Net, d-s.Width/2, p.Comp.Ref, num)
 				}
 			}
 		}

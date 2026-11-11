@@ -19,7 +19,9 @@ type BoardReport struct {
 
 // BoardDRC runs `kicad-cli pcb drc --schematic-parity --severity-all` and
 // reads the JSON report from the -o file (kicad-cli never prints it).
-func (r *Runner) BoardDRC(pcbPath string) (*BoardReport, error) {
+// With refill set, KiCad fills the board's zones first and saves the board
+// with them filled.
+func (r *Runner) BoardDRC(pcbPath string, refill bool) (*BoardReport, error) {
 	tmp, err := os.CreateTemp("", "kicad-drc-*.json")
 	if err != nil {
 		return nil, err
@@ -28,8 +30,11 @@ func (r *Runner) BoardDRC(pcbPath string) (*BoardReport, error) {
 	tmp.Close()
 	defer os.Remove(tmpPath)
 
-	_, stderr, runErr := r.run("pcb", "drc", "--format", "json", "--schematic-parity",
-		"--severity-all", "-o", tmpPath, pcbPath)
+	args := []string{"pcb", "drc", "--format", "json", "--schematic-parity", "--severity-all", "-o", tmpPath}
+	if refill {
+		args = append(args, "--refill-zones", "--save-board")
+	}
+	_, stderr, runErr := r.run(append(args, pcbPath)...)
 	data, readErr := os.ReadFile(tmpPath)
 	if readErr != nil || len(data) == 0 {
 		return nil, fmt.Errorf("kicad-cli pcb drc wrote no report: %v %s", runErr, strings.TrimSpace(stderr))
@@ -46,6 +51,9 @@ func (r *Runner) BoardDRC(pcbPath string) (*BoardReport, error) {
 		out := make([]Violation, len(in))
 		for i, v := range in {
 			out[i] = Violation{Type: v.Type, Description: v.Description, Severity: v.Severity}
+			for _, it := range v.Items {
+				out[i].Items = append(out[i].Items, it.Description)
+			}
 		}
 		return out
 	}

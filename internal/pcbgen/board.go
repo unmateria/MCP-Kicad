@@ -78,11 +78,14 @@ func BuildBoard(parts []*Part, outline Box, padNets map[string]PadNet, routing *
 			root.Children = append(root.Children, sexp.List(sexp.Atom("segment"),
 				sexp.List(sexp.Atom("start"), num(sg.X1), num(sg.Y1)),
 				sexp.List(sexp.Atom("end"), num(sg.X2), num(sg.Y2)),
-				sexp.List(sexp.Atom("width"), num(rules.Track)),
+				sexp.List(sexp.Atom("width"), num(sg.Width)),
 				sexp.List(sexp.Atom("layer"), sexp.Str(layerName[sg.Layer])),
 				sexp.List(sexp.Atom("net"), sexp.Str(sg.Net)),
 				sexp.List(sexp.Atom("uuid"), sexp.Str(sexp.NewUUID())),
 			))
+		}
+		if routing.PlaneNet != "" {
+			root.Children = append(root.Children, groundPlane(routing.PlaneNet, outline, rules.PlaneSolid))
 		}
 		for _, v := range routing.Vias {
 			root.Children = append(root.Children, sexp.List(sexp.Atom("via"),
@@ -124,4 +127,30 @@ func splitRef(r string) (string, int) {
 		n = n*10 + int(c-'0')
 	}
 	return r[:i], n
+}
+
+// groundPlane is a pour of net over the whole back layer, its outline the
+// board's; KiCad keeps it the edge clearance inside when it fills it. Syntax
+// as KiCad 10 writes it (demos/ecc83 after `pcb upgrade`). Left unfilled:
+// `kicad-cli pcb drc --refill-zones` fills it with KiCad's own engine.
+func groundPlane(net string, o Box, solid bool) *sexp.Node {
+	pt := func(x, y float64) *sexp.Node { return sexp.List(sexp.Atom("xy"), num(x), num(y)) }
+	connectPads := sexp.List(sexp.Atom("connect_pads"), sexp.List(sexp.Atom("clearance"), sexp.Atom("0.3")))
+	if solid {
+		connectPads = sexp.List(sexp.Atom("connect_pads"), sexp.Atom("yes"), sexp.List(sexp.Atom("clearance"), sexp.Atom("0.3")))
+	}
+	return sexp.List(sexp.Atom("zone"),
+		sexp.List(sexp.Atom("net"), sexp.Str(net)),
+		sexp.List(sexp.Atom("layer"), sexp.Str("B.Cu")),
+		sexp.List(sexp.Atom("uuid"), sexp.Str(sexp.NewUUID())),
+		sexp.List(sexp.Atom("hatch"), sexp.Atom("edge"), sexp.Atom("0.5")),
+		connectPads,
+		sexp.List(sexp.Atom("min_thickness"), sexp.Atom("0.25")),
+		sexp.List(sexp.Atom("fill"), sexp.Atom("yes"),
+			sexp.List(sexp.Atom("thermal_gap"), sexp.Atom("0.5")),
+			sexp.List(sexp.Atom("thermal_bridge_width"), sexp.Atom("0.5")),
+			sexp.List(sexp.Atom("island_removal_mode"), sexp.Atom("0"))),
+		sexp.List(sexp.Atom("polygon"), sexp.List(sexp.Atom("pts"),
+			pt(o.X1, o.Y1), pt(o.X2, o.Y1), pt(o.X2, o.Y2), pt(o.X1, o.Y2))),
+	)
 }

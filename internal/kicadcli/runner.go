@@ -95,6 +95,9 @@ type violationJSON struct {
 	Type        string `json:"type"`
 	Description string `json:"description"`
 	Severity    string `json:"severity"`
+	Items       []struct {
+		Description string `json:"description"`
+	} `json:"items"`
 }
 
 // parseViolations extracts Violation structs from a kicad-cli JSON report
