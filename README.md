@@ -55,7 +55,7 @@ Every part comes out of `compile_schematic` with a footprint that has been check
 |---|---|
 | **Connectivity** | Read from the netlist KiCad itself exports, so the board agrees with KiCad's *Update PCB from Schematic*, which keeps working on it |
 | **Placement** | Seeded from the schematic layout; no overlapping courtyards; decoupling capacitors against their IC's power pin, connectors on the board edge, rotations that shorten the wiring |
-| **Routing** | Two layers, 45° tracks, wider tracks for supplies and for any net you name (`net_widths`, e.g. 2 mm for a heater), a ground plane on the back |
+| **Routing** | Two layers, 45° tracks, wider tracks for supplies and for any net you name (`net_widths`, e.g. 2 mm for a heater), a ground plane on the back. Or **single-sided** for boards made at home (`single_sided`): through-hole parts, every track on the bottom, wide tracks and pads for a CNC or toner transfer, and a straight wire jumper over the top only where a connection cannot be made. Track width and clearance are yours to set (`track_width`, `power_width`, `clearance`) |
 | **Checking** | KiCad's DRC with schematic parity. A board that does not implement its schematic, or breaks a rule, is never handed over: the routing is thrown away and the board comes back unrouted, with the reason |
 
 `export_fabrication` writes the Gerbers, drill files, a pick-and-place file, a BOM and a zip ready for a board house — and refuses to while the board fails those checks.
@@ -366,7 +366,7 @@ KiCad files are read and written through a real S-expression parser ([`internal/
 - **Text can still overlap on dense sheets.** Reference designators and net labels are moved to the lowest-overlap position available, but on a crowded schematic the best available spot sometimes still touches something. The compiler reports exactly what is left over and how much extra spacing would clear each one.
 - **Some connections become labels instead of wires.** This is the gate doing its job. Electrically identical, less pretty.
 - **PNG previews need a Chromium-family browser** (Edge, Chrome, Chromium or Brave). Without one, a lower-quality pure-Go renderer is used instead. Only the Windows path is verified in practice.
-- **Boards are two-layer, from a grid router.** It routes every board in the reference corpus, at 45°; it is not a replacement for hand layout on high-speed, RF or high-voltage work. Where the ground plane cannot give a pad two thermal spokes, it joins it solidly and says which pad.
+- **Boards are two-layer or single-sided, from a grid router.** On a single-sided board the number of wire jumpers depends on where the parts sit; moving a few by hand in KiCad and routing again usually removes some. It routes every board in the reference corpus, at 45°; it is not a replacement for hand layout on high-speed, RF or high-voltage work. Where the ground plane cannot give a pad two thermal spokes, it joins it solidly and says which pad.
 - **Placement starts from the schematic.** A tidy schematic gives a tidy board; parts the schematic puts far apart start far apart.
 - **Tested with Claude Desktop and Claude Code.** Other MCP clients should work but haven't been tried.
 

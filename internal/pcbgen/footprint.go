@@ -3,6 +3,7 @@ package pcbgen
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"mcp-kicad/internal/sexp"
@@ -137,6 +138,45 @@ func LoadFootprint(libID, text string) (*Footprint, error) {
 		return nil, fmt.Errorf("%s: footprint has neither pads nor graphics", libID)
 	}
 	return f, nil
+}
+
+// ForMilling returns a copy whose through-hole pads are at least minPad
+// across — what an isolation-milled board needs to keep a solderable ring
+// around the hole — but never so wide that a pad comes within clearance of
+// a neighbour in the same footprint. Pads only grow; SMD pads and bare holes
+// are left as they are. grow widens the courtyard on every side, so placement
+// leaves room for wide tracks between parts.
+func (f *Footprint) ForMilling(minPad, clearance, grow float64) (*Footprint, error) {
+	root, err := parseFootprint(f.text)
+	if err != nil {
+		return nil, err
+	}
+	out := *f
+	out.PadShapes = slices.Clone(f.PadShapes)
+	out.Courtyard = Box{f.Courtyard.X1 - grow, f.Courtyard.Y1 - grow, f.Courtyard.X2 + grow, f.Courtyard.Y2 + grow}
+	i := 0
+	for _, c := range root.Children {
+		if c.Head() != "pad" {
+			continue
+		}
+		ps := &out.PadShapes[i]
+		i++
+		if ps.Drill == 0 || ps.NPTH {
+			continue
+		}
+		limit := minPad
+		for _, o := range f.PadShapes {
+			if d := math.Hypot(o.X-ps.X, o.Y-ps.Y); d > 0 {
+				limit = math.Min(limit, d-clearance)
+			}
+		}
+		ps.W, ps.H = math.Max(ps.W, limit), math.Max(ps.H, limit)
+		if size := sexp.FindList(c, "size"); size != nil && len(size.Children) >= 3 {
+			size.Children[1], size.Children[2] = num(ps.W), num(ps.H)
+		}
+	}
+	out.text = sexp.WriteNode(root)
+	return &out, nil
 }
 
 // shapePoints returns points bounding a graphic item. Circles contribute their

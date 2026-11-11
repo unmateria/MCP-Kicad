@@ -57,6 +57,31 @@ type RouteRules struct {
 	// narrowed: a net that does not fit at it is left unrouted and reported,
 	// because a track too thin for its current is worse than no track.
 	NetWidths map[string]float64
+	// SingleSided routes a board made at home: every track on B.Cu, where
+	// through-hole parts are soldered. A connection that cannot be made
+	// there crosses over the top as a wire jumper — a straight F.Cu track
+	// between two vias, which stand for the jumper's holes. Jumpers never
+	// touch a pad and never branch, because a wire link cannot.
+	SingleSided bool
+}
+
+// jumperCost is what a wire jumper costs in single-sided mode, in mm of
+// track: worth a long detour on the copper side, since every jumper is two
+// holes and a wire soldered by hand.
+const jumperCost = 40.0
+
+func (rt *router) viaCost(w weights) float64 {
+	if rt.r.SingleSided {
+		return jumperCost
+	}
+	return w.via
+}
+
+// planeGeometry is the ground pour's clearance to other copper, thermal gap
+// and spoke width. They follow the board's own clearance and track width, so
+// a pour on a home-milled board keeps the same gaps as its tracks.
+func (r RouteRules) planeGeometry() (clearance, gap, spoke float64) {
+	return math.Max(0.3, r.Clearance), math.Max(0.5, r.Clearance), math.Max(0.5, r.Track)
 }
 
 var DefaultRouteRules = RouteRules{
@@ -417,8 +442,9 @@ const spokeCost = 6.0
 // fewer than two spokes. A corridor is as wide as a spoke plus clearance on
 // both sides and reaches past the thermal gap into the pour.
 func (rt *router) buildSpokes() {
-	const spokeW, gap, reach = 0.5, 0.5, 1.0
-	half := spokeW/2 + 0.3 + rt.r.Track/2 // spoke, zone clearance, track
+	const reach = 1.0
+	zoneClear, gap, spokeW := rt.r.planeGeometry()
+	half := spokeW/2 + zoneClear + rt.r.Track/2
 	rt.spoke = make([]bool, 2*rt.cells)
 	for _, pi := range rt.netPads[rt.plane] {
 		p := rt.pads[pi]
@@ -532,7 +558,7 @@ func (rt *router) buildStatic() {
 					}
 					i := l*rt.cells + c
 					switch o := rt.padOwner[k][i]; {
-					case p.net < 0:
+					case p.net < 0, l == 0 && r.SingleSided: // a jumper keeps off every pad
 						rt.padOwner[k][i] = -2
 					case o == -1:
 						rt.padOwner[k][i] = int32(p.net)
@@ -742,7 +768,12 @@ func (rt *router) routeNet(net int, hard bool, w weights) int {
 		for ti := range inTree {
 			sources = append(sources, rt.padNodes(ti, net)...)
 		}
-		sources = append(sources, treeNodes...)
+		for _, n := range treeNodes {
+			// A wire jumper cannot branch halfway along.
+			if l, _, _ := rt.split(n); l == 1 || !rt.r.SingleSided {
+				sources = append(sources, n)
+			}
+		}
 		sort.Slice(sources, func(i, j int) bool { return sources[i] < sources[j] })
 		path := rt.search(net, sources, rt.padNodes(next, net), rt.pads[next], hard, w)
 		inTree[next] = true
@@ -800,7 +831,7 @@ func (rt *router) netCost(net int, w weights) float64 {
 			la, xa, ya := rt.split(c.path[k-1])
 			lb, xb, yb := rt.split(c.path[k])
 			if la != lb {
-				total += w.via
+				total += rt.viaCost(w)
 				prev = noDir
 				continue
 			}
@@ -826,8 +857,12 @@ func dirIndex(dx, dy int) int {
 func (rt *router) stepCost(l, d, prev int, w weights) float64 {
 	step := rt.r.Grid
 	switch {
+	case rt.r.SingleSided && l == 0 && prev != noDir && prev != d:
+		return -1 // a wire jumper runs straight
 	case d%2 == 1:
 		step *= math.Sqrt2 * w.diag
+	case rt.r.SingleSided:
+		// One copper layer: no preferred direction.
 	case (l == 0) != (dirs[d][1] == 0): // F.Cu vertical, B.Cu horizontal
 		step *= w.wrongWay
 	}
@@ -997,7 +1032,7 @@ func (rt *router) search(net int, sources, targets []rnode, goal routePad, hard 
 		if rt.viaOK[c] && rt.open(net, other) && !rt.nearOwnVia(net, x, y) {
 			cong := rt.othersV(net, rt.node(0, x, y)) + rt.othersV(net, rt.node(1, x, y))
 			if f, ok := congestion(other, cong); ok {
-				push(int32(other)*nDirs+noDir, rt.g[s]+float32(w.via*f), s)
+				push(int32(other)*nDirs+noDir, rt.g[s]+float32(rt.viaCost(w)*f), s)
 			}
 		}
 	}

@@ -55,7 +55,7 @@ Cada pieza sale de `compile_schematic` con un footprint comprobado: que existe y
 |---|---|
 | **Conexiones** | Se leen de la netlist que exporta el propio KiCad, así que la placa coincide con su *Actualizar PCB desde esquemático*, que sigue funcionando sobre ella |
 | **Colocación** | Parte de la disposición del esquema; sin solapes de huellas; condensadores de desacoplo pegados a la patilla de alimentación de su chip, conectores en el borde, giros que acortan las conexiones |
-| **Ruteo** | Dos caras, pistas a 45°, pistas más anchas para la alimentación y para la red que nombres (`net_widths`, p. ej. 2 mm para un calefactor), plano de masa en la cara de abajo |
+| **Ruteo** | Dos caras, pistas a 45°, pistas más anchas para la alimentación y para la red que nombres (`net_widths`, p. ej. 2 mm para un calefactor), plano de masa en la cara de abajo. O **a una cara** para placas hechas en casa (`single_sided`): componentes de agujero pasante, todas las pistas abajo, pistas y pads anchos para CNC o planchado de tóner, y un puente de cable recto por arriba solo donde una conexión no cabe. El ancho de pista y la separación los eliges tú (`track_width`, `power_width`, `clearance`) |
 | **Comprobación** | El DRC de KiCad con paridad con el esquema. Una placa que no implementa su esquema o incumple una regla nunca se entrega así: el ruteo se descarta y la placa vuelve sin rutear, con el motivo |
 
 `export_fabrication` genera los Gerbers, los taladros, el fichero de posiciones para montaje, la lista de materiales y un zip listo para el fabricante, y se niega a hacerlo mientras la placa no pase esas comprobaciones.
@@ -367,7 +367,7 @@ Los ficheros de KiCad se leen y se escriben con un parser de S-expresiones de ve
 - **Los textos todavía pueden solaparse en hojas densas.** Las referencias y las etiquetas de net se llevan a la posición con menos solape disponible, pero en un esquema apretado la mejor posición posible a veces sigue tocando algo. El compilador informa exactamente de lo que queda y de cuánta separación extra haría falta para resolver cada caso.
 - **Algunas conexiones acaban en etiqueta en vez de en cable.** Es la barrera haciendo su trabajo. Eléctricamente idéntico, estéticamente peor.
 - **Las vistas previas en PNG necesitan un navegador de la familia Chromium** (Edge, Chrome, Chromium o Brave). Sin uno, se usa un renderizador en Go puro de menor calidad. Solo la ruta de Windows está verificada en la práctica.
-- **Las placas son de dos caras y salen de un enrutador de rejilla.** Rutea todas las placas del corpus de referencia, a 45°; no sustituye al diseño a mano en alta velocidad, RF o alta tensión. Donde el plano de masa no puede dar dos radios térmicos a un pad, lo une en sólido y dice qué pad.
+- **Las placas son de dos caras o de una, y salen de un enrutador de rejilla.** En una placa de una cara el número de puentes depende de dónde quedan las piezas; mover unas pocas a mano en KiCad y volver a rutear suele quitar algunos. Rutea todas las placas del corpus de referencia, a 45°; no sustituye al diseño a mano en alta velocidad, RF o alta tensión. Donde el plano de masa no puede dar dos radios térmicos a un pad, lo une en sólido y dice qué pad.
 - **La colocación parte del esquema.** Un esquema ordenado da una placa ordenada; lo que el esquema pone lejos empieza lejos.
 - **Probado con Claude Desktop y Claude Code.** Otros clientes MCP deberían funcionar, pero no se han probado.
 

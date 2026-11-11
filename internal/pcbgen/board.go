@@ -1,6 +1,7 @@
 package pcbgen
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -83,9 +84,19 @@ func BuildBoard(parts []*Part, outline Box, padNets map[string]PadNet, routing *
 				sexp.List(sexp.Atom("net"), sexp.Str(sg.Net)),
 				sexp.List(sexp.Atom("uuid"), sexp.Str(sexp.NewUUID())),
 			))
+			if rules.SingleSided && sg.Layer == 0 {
+				// The jumper on the top silkscreen: where the wire goes.
+				root.Children = append(root.Children, sexp.List(sexp.Atom("gr_line"),
+					sexp.List(sexp.Atom("start"), num(sg.X1), num(sg.Y1)),
+					sexp.List(sexp.Atom("end"), num(sg.X2), num(sg.Y2)),
+					sexp.List(sexp.Atom("stroke"), sexp.List(sexp.Atom("width"), num(0.3)), sexp.List(sexp.Atom("type"), sexp.Atom("solid"))),
+					sexp.List(sexp.Atom("layer"), sexp.Str("F.SilkS")),
+					sexp.List(sexp.Atom("uuid"), sexp.Str(sexp.NewUUID())),
+				))
+			}
 		}
 		if routing.PlaneNet != "" {
-			root.Children = append(root.Children, groundPlane(routing.PlaneNet, outline, rules.PlaneSolid))
+			root.Children = append(root.Children, groundPlane(routing.PlaneNet, outline, rules))
 		}
 		for _, v := range routing.Vias {
 			root.Children = append(root.Children, sexp.List(sexp.Atom("via"),
@@ -133,22 +144,26 @@ func splitRef(r string) (string, int) {
 // board's; KiCad keeps it the edge clearance inside when it fills it. Syntax
 // as KiCad 10 writes it (demos/ecc83 after `pcb upgrade`). Left unfilled:
 // `kicad-cli pcb drc --refill-zones` fills it with KiCad's own engine.
-func groundPlane(net string, o Box, solid bool) *sexp.Node {
+func groundPlane(net string, o Box, rules RouteRules) *sexp.Node {
 	pt := func(x, y float64) *sexp.Node { return sexp.List(sexp.Atom("xy"), num(x), num(y)) }
-	connectPads := sexp.List(sexp.Atom("connect_pads"), sexp.List(sexp.Atom("clearance"), sexp.Atom("0.3")))
-	if solid {
-		connectPads = sexp.List(sexp.Atom("connect_pads"), sexp.Atom("yes"), sexp.List(sexp.Atom("clearance"), sexp.Atom("0.3")))
+	clear, gap, spoke := rules.planeGeometry()
+	connectPads := sexp.List(sexp.Atom("connect_pads"), sexp.List(sexp.Atom("clearance"), num(clear)))
+	if rules.PlaneSolid {
+		connectPads = sexp.List(sexp.Atom("connect_pads"), sexp.Atom("yes"), sexp.List(sexp.Atom("clearance"), num(clear)))
 	}
+	// No sliver of pour thinner than half a track: a milled board cannot
+	// isolate one, and it would only peel off.
+	minThick := math.Max(0.25, rules.Track/2)
 	return sexp.List(sexp.Atom("zone"),
 		sexp.List(sexp.Atom("net"), sexp.Str(net)),
 		sexp.List(sexp.Atom("layer"), sexp.Str("B.Cu")),
 		sexp.List(sexp.Atom("uuid"), sexp.Str(sexp.NewUUID())),
 		sexp.List(sexp.Atom("hatch"), sexp.Atom("edge"), sexp.Atom("0.5")),
 		connectPads,
-		sexp.List(sexp.Atom("min_thickness"), sexp.Atom("0.25")),
+		sexp.List(sexp.Atom("min_thickness"), num(minThick)),
 		sexp.List(sexp.Atom("fill"), sexp.Atom("yes"),
-			sexp.List(sexp.Atom("thermal_gap"), sexp.Atom("0.5")),
-			sexp.List(sexp.Atom("thermal_bridge_width"), sexp.Atom("0.5")),
+			sexp.List(sexp.Atom("thermal_gap"), num(gap)),
+			sexp.List(sexp.Atom("thermal_bridge_width"), num(spoke)),
 			sexp.List(sexp.Atom("island_removal_mode"), sexp.Atom("0"))),
 		sexp.List(sexp.Atom("polygon"), sexp.List(sexp.Atom("pts"),
 			pt(o.X1, o.Y1), pt(o.X2, o.Y1), pt(o.X2, o.Y2), pt(o.X1, o.Y2))),

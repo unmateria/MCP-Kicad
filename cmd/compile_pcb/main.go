@@ -19,6 +19,10 @@ func main() {
 	overwrite := flag.Bool("overwrite", false, "replace an existing .kicad_pcb")
 	noRoute := flag.Bool("noroute", false, "place only, do not route")
 	widths := flag.String("widths", "", "track width per net, e.g. HEATER=2,+BATT=2")
+	single := flag.Bool("single", false, "single-sided board for home making: tracks on B.Cu, wire jumpers, milling pads")
+	track := flag.Float64("track", 0, "signal track width, mm (0: default)")
+	power := flag.Float64("power", 0, "supply track width, mm (0: default)")
+	clearance := flag.Float64("clearance", 0, "copper clearance, mm (0: default)")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: compile_pcb [-overwrite] <schematic.kicad_sch>")
@@ -45,7 +49,8 @@ func main() {
 		}
 		nw[strings.TrimSpace(name)] = w
 	}
-	res, err := env.CompilePCB(flag.Arg(0), tools.PCBOptions{Overwrite: *overwrite, Route: !*noRoute, NetWidths: nw})
+	res, err := env.CompilePCB(flag.Arg(0), tools.PCBOptions{Overwrite: *overwrite, Route: !*noRoute, NetWidths: nw,
+		SingleSided: *single, Track: *track, PowerTrack: *power, Clearance: *clearance})
 	if res != nil {
 		fmt.Print(res.Report)
 		fmt.Println("board:", res.PCBPath)

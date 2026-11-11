@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,7 +27,39 @@ type PCBOptions struct {
 	Overwrite bool               // replace an existing board
 	Route     bool               // route it, not only place it
 	NetWidths map[string]float64 // track width per net name, mm
+	// SingleSided routes everything on B.Cu, with wire jumpers where it
+	// must, and grows through-hole pads for milling. Only through-hole parts.
+	SingleSided bool
+	// Track, PowerTrack and Clearance override the copper rules, mm; 0 keeps
+	// the default (single-sided: 1.0 / 2.0 / 0.6, sized for a home CNC).
+	Track, PowerTrack, Clearance float64
 }
+
+// rules turns the options into router rules.
+func (opt PCBOptions) rules() pcbgen.RouteRules {
+	r := pcbgen.DefaultRouteRules
+	if opt.SingleSided {
+		r.Track, r.PowerTrack, r.Clearance = 1.0, 2.0, 0.6
+		// A via is a jumper's hole: drilled for a 0.6 mm wire, with a ring a
+		// milled board can solder.
+		r.Via, r.Drill, r.Edge, r.HoleToHole = 2.4, 0.9, 1.0, 0.5
+		r.SingleSided = true
+	}
+	if opt.Track > 0 {
+		r.Track = opt.Track
+	}
+	if opt.PowerTrack > 0 {
+		r.PowerTrack = opt.PowerTrack
+	}
+	if opt.Clearance > 0 {
+		r.Clearance = opt.Clearance
+	}
+	r.NetWidths = opt.NetWidths
+	return r
+}
+
+// millingPad is the smallest through-hole pad on a single-sided board.
+const millingPad = 2.4
 
 // PCBResult is the outcome of building a board from a schematic.
 type PCBResult struct {
@@ -69,7 +103,8 @@ func (e *Env) CompilePCB(schPath string, opt PCBOptions) (*PCBResult, error) {
 		return nil, err
 	}
 
-	var missing []string
+	rules := opt.rules()
+	var missing, smd []string
 	var placed []*pcbgen.Part
 	cache := map[string]*pcbgen.Footprint{}
 	searchPath := existingDirs(parts.FootprintSearchPath(e.LibsRoot, e.KicadFootprints))
@@ -84,7 +119,17 @@ func (e *Env) CompilePCB(schPath string, opt PCBOptions) (*PCBResult, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", c.Ref, err)
 			}
+			if opt.SingleSided {
+				// Room between parts for one wide track and its clearances.
+				grow := (rules.Track + 2*rules.Clearance) / 2
+				if fp, err = fp.ForMilling(millingPad, rules.Clearance, grow); err != nil {
+					return nil, fmt.Errorf("%s: %w", c.Ref, err)
+				}
+			}
 			cache[c.Footprint] = fp
+		}
+		if opt.SingleSided && hasSMDPad(fp) {
+			smd = append(smd, c.Ref+" ("+c.Footprint+")")
 		}
 		p := &pcbgen.Part{Comp: c, FP: fp}
 		p.SeedX, p.SeedY = seedOf(c, seeds)
@@ -94,13 +139,22 @@ func (e *Env) CompilePCB(schPath string, opt PCBOptions) (*PCBResult, error) {
 		sort.Strings(missing)
 		return nil, fmt.Errorf("no footprint on %s: declare \"footprint\" on those symbols in the source and recompile the schematic", strings.Join(missing, ", "))
 	}
+	if len(smd) > 0 {
+		sort.Strings(smd)
+		return nil, fmt.Errorf("single_sided takes through-hole parts only; these have SMD pads: %s — give them a through-hole footprint in the source and recompile the schematic", strings.Join(smd, ", "))
+	}
 	if len(placed) == 0 {
 		return nil, fmt.Errorf("the schematic has no parts that go on a board")
 	}
 
+	if rules.Clearance != pcbgen.DefaultRouteRules.Clearance || rules.Track != pcbgen.DefaultRouteRules.Track {
+		// DRC judges by the project's netclass: it has to carry the rules the
+		// board was routed to, or KiCad checks a 0.6 mm board against 0.2.
+		if err := setProjectNetclass(strings.TrimSuffix(pcbPath, ".kicad_pcb")+".kicad_pro", rules); err != nil {
+			return nil, err
+		}
+	}
 	pr := pcbgen.Place(placed, nl.Nets)
-	rules := pcbgen.DefaultRouteRules
-	rules.NetWidths = opt.NetWidths
 	var routing *pcbgen.RouteResult
 	if opt.Route {
 		rr := pcbgen.Route(placed, nl.Nets, pr.Outline, rules)
@@ -151,9 +205,17 @@ func (e *Env) CompilePCB(schPath string, opt PCBOptions) (*PCBResult, error) {
 	fmt.Fprintf(&sb, "placement: schematic layout ×%.2f; %d decoupling cap(s) at their IC's power pin, %d connector(s) on the edge; ratsnest HPWL %.0f mm\n",
 		pr.Scale, pr.Decaps, pr.Edge, pr.HPWL)
 	sb.WriteString(discarded.String())
-	if routing != nil {
+	if opt.SingleSided {
+		fmt.Fprintf(&sb, "single-sided: every track on B.Cu, through-hole pads grown to %.1f mm where their neighbours allow\n", millingPad)
+	}
+	if routing != nil && opt.SingleSided {
+		fmt.Fprintf(&sb, "routing: %d of %d connections, %d wire jumper(s) (F.Cu track + silkscreen line, holes %.1f mm), %d iteration(s); track %.2f mm, clearance %.2f mm\n",
+			routing.Routed, routing.Connections, len(routing.Vias)/2, rules.Drill, routing.Iterations, rules.Track, rules.Clearance)
+	} else if routing != nil {
 		fmt.Fprintf(&sb, "routing: %d of %d connections, %d via(s), %d iteration(s); track %.2f mm, clearance %.2f mm\n",
 			routing.Routed, routing.Connections, len(routing.Vias), routing.Iterations, rules.Track, rules.Clearance)
+	}
+	if routing != nil {
 		if len(routing.WideNets) > 0 {
 			fmt.Fprintf(&sb, "  wide tracks: %s\n", strings.Join(routing.WideNets, ", "))
 		}
@@ -334,6 +396,50 @@ func loadBoardFootprint(libID string, searchPath []string) (*pcbgen.Footprint, e
 	return nil, fmt.Errorf("footprint %s not found in the installed or imported libraries", libID)
 }
 
+func hasSMDPad(fp *pcbgen.Footprint) bool {
+	for _, ps := range fp.PadShapes {
+		if ps.Drill == 0 && (ps.Front || ps.Back) {
+			return true
+		}
+	}
+	return false
+}
+
+// setProjectNetclass writes the board's copper rules into the Default
+// netclass of the .kicad_pro, so KiCad's DRC and its interactive router use
+// them. The rest of the file is kept; a missing file is left to KiCad.
+func setProjectNetclass(proPath string, r pcbgen.RouteRules) error {
+	data, err := os.ReadFile(proPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var pro map[string]any
+	if err := json.Unmarshal(data, &pro); err != nil {
+		return fmt.Errorf("%s: %w", proPath, err)
+	}
+	ns, _ := pro["net_settings"].(map[string]any)
+	classes, _ := ns["classes"].([]any)
+	for _, c := range classes {
+		cls, ok := c.(map[string]any)
+		if !ok || cls["name"] != "Default" {
+			continue
+		}
+		cls["clearance"], cls["track_width"] = r.Clearance, r.Track
+		cls["via_diameter"], cls["via_drill"] = r.Via, r.Drill
+		var out bytes.Buffer
+		enc := json.NewEncoder(&out)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(pro); err != nil {
+			return err
+		}
+		return os.WriteFile(proPath, out.Bytes(), 0o644)
+	}
+	return nil
+}
+
 func dedup(in []string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -368,6 +474,10 @@ type CompilePCBArgs struct {
 	Overwrite     bool               `json:"overwrite,omitempty" jsonschema:"Replace an existing .kicad_pcb. Off by default: the existing board may hold placement or routing done by hand in KiCad, and this discards it"`
 	NoRoute       bool               `json:"no_route,omitempty" jsonschema:"Place only, leave every connection to route by hand"`
 	NetWidths     map[string]float64 `json:"net_widths,omitempty" jsonschema:"Track width in mm per net, for nets that carry current: by net name (e.g. {\"HEATER\": 2.0}) or by any pin on the net as REF.pin (e.g. {\"F1.1\": 2.0}), which also reaches nets KiCad named itself. Without it supply and ground nets get 0.5 mm and the rest 0.25 mm. A requested width is never narrowed: a net that does not fit is left unrouted and reported"`
+	SingleSided   bool               `json:"single_sided,omitempty" jsonschema:"Single-sided board for home making (CNC milling, toner transfer): through-hole parts only, every track on B.Cu where they are soldered, wire jumpers over the top only where a connection cannot be made (drawn as F.Cu tracks plus silkscreen lines, holes as vias), through-hole pads grown to 2.4 mm where neighbours allow, more room between parts. Defaults to track 1.0, power 2.0, clearance 0.6 mm"`
+	TrackWidth    float64            `json:"track_width,omitempty" jsonschema:"Signal track width in mm (default 0.25; 1.0 with single_sided)"`
+	PowerWidth    float64            `json:"power_width,omitempty" jsonschema:"Supply and ground track width in mm, where the pads allow it (default 0.5; 2.0 with single_sided)"`
+	Clearance     float64            `json:"clearance,omitempty" jsonschema:"Copper-to-copper clearance in mm (default 0.2; 0.6 with single_sided). Written into the project's Default netclass so KiCad's DRC checks the board against it"`
 }
 
 func (e *Env) handleCompilePCB(_ context.Context, _ *mcp.CallToolRequest, input CompilePCBArgs) (res *mcp.CallToolResult, _ any, _ error) {
@@ -375,7 +485,8 @@ func (e *Env) handleCompilePCB(_ context.Context, _ *mcp.CallToolRequest, input 
 	if input.SchematicPath == "" {
 		return toolText("error: schematic_path is required (the .kicad_sch from compile_schematic)"), nil, nil
 	}
-	out, err := e.CompilePCB(input.SchematicPath, PCBOptions{Overwrite: input.Overwrite, Route: !input.NoRoute, NetWidths: input.NetWidths})
+	out, err := e.CompilePCB(input.SchematicPath, PCBOptions{Overwrite: input.Overwrite, Route: !input.NoRoute, NetWidths: input.NetWidths,
+		SingleSided: input.SingleSided, Track: input.TrackWidth, PowerTrack: input.PowerWidth, Clearance: input.Clearance})
 	if err != nil && out == nil {
 		return toolText(fmt.Sprintf("compile_pcb error: %v", err)), nil, nil
 	}
