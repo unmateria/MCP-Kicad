@@ -1,6 +1,6 @@
 # MCP-KiCad
 
-**Design electronic schematics by talking to Claude.** This is an [MCP](https://modelcontextprotocol.io) server that lets a language model draw real KiCad schematics — placing parts, wiring nets, adding power symbols and running KiCad's own electrical rules check — and hand you a `.kicad_sch` file you can open, edit and manufacture from.
+**Design electronic schematics and boards by talking to Claude.** This is an [MCP](https://modelcontextprotocol.io) server that lets a language model draw real KiCad schematics — placing parts, wiring nets, adding power symbols and running KiCad's own electrical rules check — turn them into placed and routed two-layer boards, and hand you the files to open, edit and send to a board house.
 
 *[Léeme en español](README.es.md)*
 
@@ -21,7 +21,7 @@ You ask for a circuit in plain language. Claude writes a short declarative descr
 > **Claude:** *[looks up the real pin names of the NE555, writes the design, compiles it]*
 > Done — 7 components, ERC clean. Here's the preview.
 
-The result opens in KiCad like any other schematic. It is not a picture: it is a real file with a real netlist, ready for PCB layout.
+The result opens in KiCad like any other schematic. It is not a picture: it is a real file with a real netlist — and one more call turns it into a board.
 
 ### What makes the output usable
 
@@ -41,9 +41,28 @@ If a connection cannot be drawn cleanly, it degrades to a net label rather than 
 
 A net crossing *itself* is not one of those cases: it is one net either way, so the wire is cut at the crossing and given a junction rather than being thrown away. Only a genuine conflict with another net costs you a wire.
 
+### From schematic to board
+
+Every part comes out of `compile_schematic` with a footprint that has been checked to exist and to have a pad for each pin — the one you named, the one KiCad's library symbol carries, or a stated default. `compile_pcb` then builds the board:
+
+<p align="center">
+  <img src="docs/images/ne555_astable_pcb.svg" alt="555 astable board placed and routed by MCP-KiCad" width="520">
+</p>
+
+<p align="center"><em>The 555 astable as <code>compile_pcb</code> lays it out: parts placed from the schematic, connectors on the edges, tracks on both layers. A ground plane fills the back layer (not drawn, so the tracks show).</em></p>
+
+| | |
+|---|---|
+| **Connectivity** | Read from the netlist KiCad itself exports, so the board agrees with KiCad's *Update PCB from Schematic*, which keeps working on it |
+| **Placement** | Seeded from the schematic layout; no overlapping courtyards; decoupling capacitors against their IC's power pin, connectors on the board edge, rotations that shorten the wiring |
+| **Routing** | Two layers, 45° tracks, wider tracks for supplies and for any net you name (`net_widths`, e.g. 2 mm for a heater), a ground plane on the back |
+| **Checking** | KiCad's DRC with schematic parity. A board that does not implement its schematic, or breaks a rule, is never handed over: the routing is thrown away and the board comes back unrouted, with the reason |
+
+`export_fabrication` writes the Gerbers, drill files, a pick-and-place file, a BOM and a zip ready for a board house — and refuses to while the board fails those checks.
+
 ### What it does not do
 
-- **No PCB work.** No board layout, no copper routing, no Gerbers. Schematics only, on purpose — a PCB from a bad schematic is worthless.
+- **It cannot check the parts in your hand.** Pinouts and footprints come from KiCad's libraries and the datasheets; a transistor whose maker ordered its legs differently, or a module whose header is not the one in the library, is yours to check before ordering boards.
 - **No component invention.** It uses KiCad's installed symbol libraries, and `find_part` / `import_part` bring in what is missing from external KiCad libraries — verified before installation. If a part exists nowhere, it says so instead of drawing one.
 - **Not a simulator.** It draws what you describe; it does not tell you whether your circuit is a good idea.
 
@@ -251,7 +270,7 @@ Generated files default to `<your home>/mcp-kicad/output`.
 
 ## Tools
 
-Thirty-three tools are exposed. In practice Claude drives almost everything through `compile_schematic`; the rest exist for inspection and for repairing an existing file.
+Thirty-five tools are exposed. In practice Claude drives almost everything through `compile_schematic`, `compile_pcb` and `export_fabrication`; the rest exist for inspection and for repairing an existing file.
 
 **Designing**
 `compile_schematic` · `design_guide` · `get_design_context` · `kicad_workflow_help` · `apply_template` · `list_templates`
@@ -265,8 +284,11 @@ Thirty-three tools are exposed. In practice Claude drives almost everything thro
 **Editing by hand**
 `create_schematic` · `add_symbol` · `connect_pins` · `disconnect_pin` · `add_wire` · `add_label` · `add_power_rail` · `junction` · `no_connect` · `connect_netlist` · `batch_schematic`
 
+**Boards**
+`compile_pcb` · `export_fabrication` · `modify_pcb_layout`
+
 **Checking and exporting**
-`validate_design` (ERC/DRC) · `export_schematic_image` (SVG/PDF) · `modify_pcb_layout`
+`validate_design` (ERC/DRC) · `export_schematic_image` (SVG/PDF)
 
 **Setup**
 `get_project_info` · `get_output_dir` · `set_output_dir`
@@ -328,6 +350,13 @@ why `libs/` is not versioned: it is reproducible from the sources.
 5. **Tidy.** Reference and value text is moved off bodies and wires; the sheet is centred and the paper size upgraded if the circuit doesn't fit.
 6. **Verify.** The file is re-read from scratch, its netlist traced and compared against the source, and `kicad-cli` runs ERC.
 
+`.kicad_sch` → **compile_pcb** → `.kicad_pcb`
+
+1. **Netlist.** Exported by `kicad-cli`, the same data *Update PCB from Schematic* uses.
+2. **Place.** Schematic positions seed the board at several scales; parts are legalised without overlap, rotated to shorten the wiring, decoupling capacitors put at their IC's power pin and connectors on the edge.
+3. **Route.** A two-layer grid router written for this project from published algorithms (A\* with bend costs, PathFinder negotiated congestion, then a rip-up-and-improve pass), with no code from other routers. Its copper is measured exactly against every other net before it is handed back.
+4. **Verify.** KiCad rewrites the file, fills the ground plane and runs DRC with schematic parity. A variant that fails is replaced by the next best: plane with thermal reliefs, plane with solid joints, no plane, unrouted.
+
 KiCad files are read and written through a real S-expression parser ([`internal/sexp`](internal/sexp)) — never by pattern-matching on text.
 
 ---
@@ -337,6 +366,8 @@ KiCad files are read and written through a real S-expression parser ([`internal/
 - **Text can still overlap on dense sheets.** Reference designators and net labels are moved to the lowest-overlap position available, but on a crowded schematic the best available spot sometimes still touches something. The compiler reports exactly what is left over and how much extra spacing would clear each one.
 - **Some connections become labels instead of wires.** This is the gate doing its job. Electrically identical, less pretty.
 - **PNG previews need a Chromium-family browser** (Edge, Chrome, Chromium or Brave). Without one, a lower-quality pure-Go renderer is used instead. Only the Windows path is verified in practice.
+- **Boards are two-layer, from a grid router.** It routes every board in the reference corpus, at 45°; it is not a replacement for hand layout on high-speed, RF or high-voltage work. Where the ground plane cannot give a pad two thermal spokes, it joins it solidly and says which pad.
+- **Placement starts from the schematic.** A tidy schematic gives a tidy board; parts the schematic puts far apart start far apart.
 - **Tested with Claude Desktop and Claude Code.** Other MCP clients should work but haven't been tried.
 
 ---
@@ -350,6 +381,8 @@ go run ./cmd/verify_e2e              # end-to-end smoke test
 go run ./cmd/compile -o out.kicad_sch docs/compiler/led_18650.design.json
 go run ./cmd/measure_layout out.kicad_sch    # layout quality metrics
 go run ./cmd/pininfo <library.kicad_sym>     # pin positions in a symbol library
+go run ./cmd/compile_pcb -widths "+12V=1" out.kicad_sch   # place and route a board
+go run ./cmd/export_fab out.kicad_pcb        # Gerbers, drill, BOM, pick-and-place
 
 # The component sources are claims about the outside world. `go test ./...`
 # never touches the network; these re-measure them on demand.
@@ -357,9 +390,7 @@ MCP_KICAD_LIVE=1 go test ./internal/parts/providers/ -run TestLive -v
 MCP_KICAD_LIVE=1 go test ./internal/tools/ -run TestLiveImportAndCompile -v
 ```
 
-The thirteen sources in `docs/compiler/` are the reference corpus — every change to the pipeline is checked against all of them.
-
-Architecture notes live in [`CLAUDE.md`](CLAUDE.md).
+The thirteen sources in `docs/compiler/` are the reference corpus — every change to the pipeline is checked against all of them, as schematics and as boards.
 
 ---
 

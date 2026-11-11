@@ -3,8 +3,8 @@
   "name": "mcp-kicad",
   "display_name": "MCP-KiCad",
   "version": "0.0.0",
-  "description": "Design KiCad schematics by talking to Claude: places parts, wires nets and runs KiCad's own ERC.",
-  "long_description": "Describe a circuit in plain language and get back a real `.kicad_sch` file you can open and edit in KiCad. Every generated schematic is verified before you see it: no wire crosses a foreign net, no wire runs through a component body, every declared connection exists and no accidental ones do. Connections that cannot be drawn cleanly become net labels rather than wires that lie. Requires KiCad 10 installed; `kicad-cli` is detected automatically. Schematics only — no PCB layout or Gerbers.",
+  "description": "Design KiCad schematics and routed PCBs by talking to Claude, checked by KiCad's own ERC and DRC.",
+  "long_description": "Describe a circuit in plain language and get back a real `.kicad_sch` you can open and edit in KiCad, then a placed and routed two-layer `.kicad_pcb` and the Gerbers to manufacture it. Every schematic is verified before you see it: no wire crosses a foreign net, no wire runs through a component body, every declared connection exists and no accidental ones do. Every board is checked by KiCad's DRC with schematic parity; a board that fails is never handed over as if it were fine. Requires KiCad 10 installed; `kicad-cli` is detected automatically.",
   "author": {
     "name": "Unmateria",
     "url": "https://github.com/unmateria"

@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.unmateria/mcp-kicad",
-  "title": "KiCad Schematics",
-  "description": "Design KiCad schematics by talking to Claude. Places parts, wires nets, runs ERC. Needs KiCad 10.",
+  "title": "KiCad Schematics and PCBs",
+  "description": "Design KiCad schematics and routed PCBs by talking to Claude. Checked by KiCad. Needs KiCad 10.",
   "repository": {
     "url": "https://github.com/unmateria/MCP-Kicad",
     "source": "github"

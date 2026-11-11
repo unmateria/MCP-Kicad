@@ -1,6 +1,6 @@
 # MCP-KiCad
 
-**Diseña esquemas electrónicos hablando con Claude.** Es un servidor [MCP](https://modelcontextprotocol.io) que permite a un modelo de lenguaje dibujar esquemas de KiCad de verdad — colocando componentes, cableando nets, añadiendo símbolos de alimentación y pasando el chequeo eléctrico del propio KiCad — y devolverte un fichero `.kicad_sch` que puedes abrir, editar y llevar a fabricación.
+**Diseña esquemas electrónicos y placas hablando con Claude.** Es un servidor [MCP](https://modelcontextprotocol.io) que permite a un modelo de lenguaje dibujar esquemas de KiCad de verdad — colocando componentes, cableando nets, añadiendo símbolos de alimentación y pasando el chequeo eléctrico del propio KiCad —, convertirlos en placas de dos caras colocadas y ruteadas, y devolverte los ficheros para abrir, editar y mandar a fabricar.
 
 *[Read me in English](README.md)*
 
@@ -21,7 +21,7 @@ Le pides un circuito en lenguaje normal. Claude escribe una descripción declara
 > **Claude:** *[consulta los nombres reales de los pines del NE555, escribe el diseño y lo compila]*
 > Listo — 7 componentes, ERC limpio. Aquí tienes la vista previa.
 
-El resultado se abre en KiCad como cualquier otro esquema. No es un dibujo: es un fichero real con una netlist real, listo para pasar a PCB.
+El resultado se abre en KiCad como cualquier otro esquema. No es un dibujo: es un fichero real con una netlist real, y con una llamada más se convierte en placa.
 
 ### Por qué el resultado sirve
 
@@ -41,9 +41,28 @@ Si una conexión no se puede dibujar limpia, degrada a etiqueta de net en vez de
 
 Que una net se cruce *consigo misma* no es uno de esos casos: sigue siendo una sola net, así que el cable se corta en el cruce y se le pone un punto de soldadura en vez de tirarlo. Solo un conflicto real con otra net te cuesta un cable.
 
+### Del esquema a la placa
+
+Cada pieza sale de `compile_schematic` con un footprint comprobado: que existe y que tiene un pad para cada pin. Es el que indicaste, el que trae el símbolo de la librería de KiCad, o uno por defecto que se te dice. Después `compile_pcb` construye la placa:
+
+<p align="center">
+  <img src="docs/images/ne555_astable_pcb.svg" alt="Placa del astable con 555 colocada y ruteada por MCP-KiCad" width="520">
+</p>
+
+<p align="center"><em>El astable con 555 tal como lo coloca <code>compile_pcb</code>: piezas colocadas a partir del esquema, conectores en los bordes, pistas por las dos caras. Un plano de masa ocupa la cara de abajo (no se dibuja, para que se vean las pistas).</em></p>
+
+| | |
+|---|---|
+| **Conexiones** | Se leen de la netlist que exporta el propio KiCad, así que la placa coincide con su *Actualizar PCB desde esquemático*, que sigue funcionando sobre ella |
+| **Colocación** | Parte de la disposición del esquema; sin solapes de huellas; condensadores de desacoplo pegados a la patilla de alimentación de su chip, conectores en el borde, giros que acortan las conexiones |
+| **Ruteo** | Dos caras, pistas a 45°, pistas más anchas para la alimentación y para la red que nombres (`net_widths`, p. ej. 2 mm para un calefactor), plano de masa en la cara de abajo |
+| **Comprobación** | El DRC de KiCad con paridad con el esquema. Una placa que no implementa su esquema o incumple una regla nunca se entrega así: el ruteo se descarta y la placa vuelve sin rutear, con el motivo |
+
+`export_fabrication` genera los Gerbers, los taladros, el fichero de posiciones para montaje, la lista de materiales y un zip listo para el fabricante, y se niega a hacerlo mientras la placa no pase esas comprobaciones.
+
 ### Qué no hace
 
-- **Nada de PCB.** Ni layout, ni ruteo de cobre, ni Gerbers. Solo esquemas, a propósito: una PCB hecha a partir de un mal esquema no vale nada.
+- **No puede comprobar las piezas que tienes en la mano.** Patillajes y footprints salen de las librerías de KiCad y de las hojas de datos; un transistor cuyo fabricante ordena las patas de otra forma, o un módulo cuyo conector no es el de la librería, te toca comprobarlo antes de pedir placas.
 - **No se inventa componentes.** Usa las librerías de símbolos instaladas de KiCad, y `find_part` / `import_part` traen lo que falte desde librerías KiCad externas, verificándolo antes de instalarlo. Si una pieza no existe en ninguna fuente, lo dice en vez de dibujarla.
 - **No es un simulador.** Dibuja lo que le describes; no te dice si tu circuito es buena idea.
 
@@ -252,7 +271,7 @@ Por defecto, los ficheros generados van a `<tu carpeta personal>/mcp-kicad/outpu
 
 ## Herramientas
 
-Expone treinta y tres herramientas. En la práctica Claude lo hace casi todo a través de `compile_schematic`; el resto están para inspeccionar y para reparar un fichero ya existente.
+Expone treinta y cinco herramientas. En la práctica Claude lo hace casi todo a través de `compile_schematic`, `compile_pcb` y `export_fabrication`; el resto están para inspeccionar y para reparar un fichero ya existente.
 
 **Diseñar**
 `compile_schematic` · `design_guide` · `get_design_context` · `kicad_workflow_help` · `apply_template` · `list_templates`
@@ -266,8 +285,11 @@ Expone treinta y tres herramientas. En la práctica Claude lo hace casi todo a t
 **Editar a mano**
 `create_schematic` · `add_symbol` · `connect_pins` · `disconnect_pin` · `add_wire` · `add_label` · `add_power_rail` · `junction` · `no_connect` · `connect_netlist` · `batch_schematic`
 
+**Placas**
+`compile_pcb` · `export_fabrication` · `modify_pcb_layout`
+
 **Comprobar y exportar**
-`validate_design` (ERC/DRC) · `export_schematic_image` (SVG/PDF) · `modify_pcb_layout`
+`validate_design` (ERC/DRC) · `export_schematic_image` (SVG/PDF)
 
 **Puesta a punto**
 `get_project_info` · `get_output_dir` · `set_output_dir`
@@ -329,6 +351,13 @@ propiedad `MCP_Source` con su procedencia, su licencia y la fecha — por eso
 5. **Rematar.** Los textos de referencia y valor se apartan de cuerpos y cables; la hoja se centra y se sube de tamaño de papel si el circuito no cabe.
 6. **Verificar.** El fichero se vuelve a leer desde cero, se traza su netlist y se compara con la fuente, y `kicad-cli` ejecuta el ERC.
 
+`.kicad_sch` → **compile_pcb** → `.kicad_pcb`
+
+1. **Netlist.** La exporta `kicad-cli`: los mismos datos que usa *Actualizar PCB desde esquemático*.
+2. **Colocar.** Las posiciones del esquema sirven de semilla a varias escalas; las piezas se legalizan sin solapes, se giran para acortar conexiones, los condensadores de desacoplo van a la patilla de alimentación de su chip y los conectores al borde.
+3. **Rutear.** Un enrutador de rejilla de dos caras escrito para este proyecto a partir de algoritmos publicados (A\* con coste de curvas, negociación PathFinder y una pasada de mejora), sin código de otros enrutadores. Su cobre se mide al milímetro contra el de cada red antes de entregarlo.
+4. **Verificar.** KiCad reescribe el fichero, rellena el plano de masa y pasa el DRC con paridad con el esquema. Una variante que falla se sustituye por la siguiente mejor: plano con alivio térmico, plano con unión sólida, sin plano, sin rutear.
+
 Los ficheros de KiCad se leen y se escriben con un parser de S-expresiones de verdad ([`internal/sexp`](internal/sexp)), nunca buscando patrones en el texto.
 
 ---
@@ -338,6 +367,8 @@ Los ficheros de KiCad se leen y se escriben con un parser de S-expresiones de ve
 - **Los textos todavía pueden solaparse en hojas densas.** Las referencias y las etiquetas de net se llevan a la posición con menos solape disponible, pero en un esquema apretado la mejor posición posible a veces sigue tocando algo. El compilador informa exactamente de lo que queda y de cuánta separación extra haría falta para resolver cada caso.
 - **Algunas conexiones acaban en etiqueta en vez de en cable.** Es la barrera haciendo su trabajo. Eléctricamente idéntico, estéticamente peor.
 - **Las vistas previas en PNG necesitan un navegador de la familia Chromium** (Edge, Chrome, Chromium o Brave). Sin uno, se usa un renderizador en Go puro de menor calidad. Solo la ruta de Windows está verificada en la práctica.
+- **Las placas son de dos caras y salen de un enrutador de rejilla.** Rutea todas las placas del corpus de referencia, a 45°; no sustituye al diseño a mano en alta velocidad, RF o alta tensión. Donde el plano de masa no puede dar dos radios térmicos a un pad, lo une en sólido y dice qué pad.
+- **La colocación parte del esquema.** Un esquema ordenado da una placa ordenada; lo que el esquema pone lejos empieza lejos.
 - **Probado con Claude Desktop y Claude Code.** Otros clientes MCP deberían funcionar, pero no se han probado.
 
 ---
@@ -351,6 +382,8 @@ go run ./cmd/verify_e2e              # prueba de humo de extremo a extremo
 go run ./cmd/compile -o out.kicad_sch docs/compiler/led_18650.design.json
 go run ./cmd/measure_layout out.kicad_sch    # métricas de calidad del layout
 go run ./cmd/pininfo <libreria.kicad_sym>    # posiciones de pines de una librería
+go run ./cmd/compile_pcb -widths "+12V=1" out.kicad_sch   # colocar y rutear una placa
+go run ./cmd/export_fab out.kicad_pcb        # Gerbers, taladros, BOM, posiciones
 
 # Las fuentes de componentes son afirmaciones sobre el mundo exterior.
 # `go test ./...` nunca toca la red; esto las vuelve a medir bajo demanda.
@@ -358,9 +391,7 @@ MCP_KICAD_LIVE=1 go test ./internal/parts/providers/ -run TestLive -v
 MCP_KICAD_LIVE=1 go test ./internal/tools/ -run TestLiveImportAndCompile -v
 ```
 
-Las trece fuentes de `docs/compiler/` son el corpus de referencia: cada cambio en el pipeline se comprueba contra todas ellas.
-
-Las notas de arquitectura están en [`CLAUDE.md`](CLAUDE.md).
+Las trece fuentes de `docs/compiler/` son el corpus de referencia: cada cambio en el pipeline se comprueba contra todas ellas, como esquemas y como placas.
 
 ---
 
