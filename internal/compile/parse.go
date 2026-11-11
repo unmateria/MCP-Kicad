@@ -114,6 +114,9 @@ func (d *Design) validate() error {
 	if !slices.Contains(validSheets, d.Sheet) {
 		v.errorf(`sheet %q: must be "auto", "A4", "A3" or absent`, d.Sheet)
 	}
+	if d.Mount != "" && d.Mount != "THT" && d.Mount != "SMD" {
+		v.errorf(`mount %q: must be "THT", "SMD" or absent`, d.Mount)
+	}
 
 	if len(d.Blocks) == 0 {
 		v.errorf("blocks: at least one block is required")
@@ -224,6 +227,9 @@ func (v *validator) explicitBlock(b *Block, label string) {
 		}
 		if s.Unit < 0 {
 			v.errorf("%s: unit %d must be >= 0", sym, s.Unit)
+		}
+		if s.Footprint != "" && !validLibID(s.Footprint) {
+			v.errorf("%s: footprint %q must have the form \"Library:Name\"", sym, s.Footprint)
 		}
 
 		switch {

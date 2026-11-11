@@ -20,6 +20,9 @@ type Design struct {
 	// routes and the other cannot, listing both here reads better than the
 	// asymmetry.
 	LabelNets []string `json:"label_nets,omitempty"`
+	// Mount picks the default footprint family for generic parts (R, C,
+	// LED, headers) whose library symbol names none: "THT" (default) or "SMD".
+	Mount string `json:"mount,omitempty"`
 }
 
 // Block is either a template instance (Template != "") or an explicit block
@@ -45,6 +48,9 @@ type Symbol struct {
 	Place  *Place `json:"place,omitempty"`
 	Rot    *int   `json:"rot,omitempty"` // 0/90/180/270; nil = canonical default per class
 	Mirror bool   `json:"mirror,omitempty"`
+	// Footprint overrides the library's and the default one: "Lib:Name".
+	// Multi-unit parts may declare it on any one unit; all units must agree.
+	Footprint string `json:"footprint,omitempty"`
 }
 
 // Place anchors one pin of this symbol an exact number of grid cells away

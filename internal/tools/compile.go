@@ -403,17 +403,31 @@ func (e *Env) CompileDesign(designPath, outSchPath string) (*CompileResult, erro
 	// author had to apply that advice by hand, one recompile at a time.
 	sch, report, defects, tidyNote := e.tidy(d, sch, report, defects, drops)
 
+	// After tidy, which rebuilds the sheet from scratch; footprints are hidden
+	// fields and change nothing the geometry passes look at.
+	fpNote, err := e.assignFootprints(sch, d)
+	if err != nil {
+		return nil, err
+	}
+
 	sb := strings.Builder{}
 	sb.WriteString(report)
 	if tidyNote != "" {
 		fmt.Fprintf(&sb, "%s\n", tidyNote)
 	}
+	sb.WriteString(fpNote)
 
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(absOut, []byte(sch.Serialize()), 0o644); err != nil {
 		return nil, err
+	}
+	if wrote, err := ensureProjectFile(absOut); err != nil {
+		fmt.Fprintf(&sb, "project file not written: %v\n", err)
+	} else if wrote {
+		fmt.Fprintf(&sb, "project: wrote %s — open it in KiCad, then Tools > Update PCB from Schematic (F8)\n",
+			strings.TrimSuffix(filepath.Base(absOut), ".kicad_sch")+".kicad_pro")
 	}
 
 	m := metrics.Compute(sch)
