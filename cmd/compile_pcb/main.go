@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"mcp-kicad/internal/config"
 	"mcp-kicad/internal/tools"
@@ -16,6 +18,7 @@ import (
 func main() {
 	overwrite := flag.Bool("overwrite", false, "replace an existing .kicad_pcb")
 	noRoute := flag.Bool("noroute", false, "place only, do not route")
+	widths := flag.String("widths", "", "track width per net, e.g. HEATER=2,+BATT=2")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: compile_pcb [-overwrite] <schematic.kicad_sch>")
@@ -29,7 +32,20 @@ func main() {
 		LibsRoot:        cfg.LibsRoot,
 		OutputDir:       cfg.OutputDir,
 	}
-	res, err := env.CompilePCB(flag.Arg(0), *overwrite, !*noRoute)
+	nw := map[string]float64{}
+	for _, kv := range strings.Split(*widths, ",") {
+		name, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		w, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "compile_pcb: width %q: %v\n", kv, err)
+			os.Exit(2)
+		}
+		nw[strings.TrimSpace(name)] = w
+	}
+	res, err := env.CompilePCB(flag.Arg(0), tools.PCBOptions{Overwrite: *overwrite, Route: !*noRoute, NetWidths: nw})
 	if res != nil {
 		fmt.Print(res.Report)
 		fmt.Println("board:", res.PCBPath)

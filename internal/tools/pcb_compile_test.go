@@ -23,7 +23,7 @@ func TestCompilePCB(t *testing.T) {
 	if _, err := e.CompileDesign(filepath.Join("..", "..", "docs", "compiler", "ne555_astable.design.json"), sch); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.CompilePCB(sch, false, true)
+	res, err := e.CompilePCB(sch, PCBOptions{Route: true})
 	if err != nil {
 		t.Fatalf("%v\n%v", err, res)
 	}
@@ -32,7 +32,7 @@ func TestCompilePCB(t *testing.T) {
 			t.Errorf("report lacks %q:\n%s", want, res.Report)
 		}
 	}
-	if _, err := e.CompilePCB(sch, false, true); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err := e.CompilePCB(sch, PCBOptions{Route: true}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("an existing board was overwritten without overwrite: %v", err)
 	}
 }

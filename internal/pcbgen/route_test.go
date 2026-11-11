@@ -2,35 +2,8 @@ package pcbgen
 
 import (
 	"fmt"
-	"math"
 	"testing"
 )
-
-// segDist is the exact distance between two segments.
-func segDist(ax, ay, bx, by, cx, cy, dx, dy float64) float64 {
-	if segCross(ax, ay, bx, by, cx, cy, dx, dy) {
-		return 0
-	}
-	return math.Min(math.Min(ptSeg(ax, ay, cx, cy, dx, dy), ptSeg(bx, by, cx, cy, dx, dy)),
-		math.Min(ptSeg(cx, cy, ax, ay, bx, by), ptSeg(dx, dy, ax, ay, bx, by)))
-}
-
-func ptSeg(px, py, ax, ay, bx, by float64) float64 {
-	vx, vy := bx-ax, by-ay
-	l := vx*vx + vy*vy
-	t := 0.0
-	if l > 0 {
-		t = math.Max(0, math.Min(1, ((px-ax)*vx+(py-ay)*vy)/l))
-	}
-	return math.Hypot(px-(ax+t*vx), py-(ay+t*vy))
-}
-
-func segCross(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
-	o := func(px, py, qx, qy, rx, ry float64) float64 { return (qx-px)*(ry-py) - (qy-py)*(rx-px) }
-	d1, d2 := o(cx, cy, dx, dy, ax, ay), o(cx, cy, dx, dy, bx, by)
-	d3, d4 := o(ax, ay, bx, by, cx, cy), o(ax, ay, bx, by, dx, dy)
-	return d1*d2 < 0 && d3*d4 < 0
-}
 
 // A row of resistors whose nets all cross over each other: every pair of
 // tracks of different nets, and every track against every foreign pad, must

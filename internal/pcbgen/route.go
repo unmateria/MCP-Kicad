@@ -2,7 +2,9 @@ package pcbgen
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -50,6 +52,11 @@ type RouteRules struct {
 	// PlaneSolid joins the plane's pads solidly instead of through thermal
 	// reliefs.
 	PlaneSolid bool
+	// NetWidths overrides the track width of named nets ("HEATER": 2.0), the
+	// leading "/" of local net names optional. A requested width is never
+	// narrowed: a net that does not fit at it is left unrouted and reported,
+	// because a track too thin for its current is worse than no track.
+	NetWidths map[string]float64
 }
 
 var DefaultRouteRules = RouteRules{
@@ -89,7 +96,8 @@ type RouteResult struct {
 	Unrouted    []string // nets with at least one connection left to the user
 	Iterations  int      // negotiation rounds
 	Improved    int      // nets the improvement pass made cheaper
-	PowerNets   []string // routed at power width
+	WideNets    []string // nets wider than signal, "NAME 0.5 mm"
+	Narrowed    []string // supply nets that did not fit at power width and went at signal width
 	PlaneNet    string   // poured on the back layer, "" for none
 }
 
@@ -162,18 +170,20 @@ type router struct {
 	pads    []routePad
 	netName []string
 	netPads [][]int
-	netCls  []int // 0 signal, 1 power
+	netCls  []int     // index into widths
+	widths  []float64 // distinct track widths in use; widths[0] is the signal width, the rest ascending
+	asked   []bool    // per net: width requested by name, never to be narrowed
 
 	// static, per track class: -1 free, net id when only that net's pads
 	// are near, -2 blocked
-	padOwner [2][]int32
+	padOwner [][]int32
 	viaOK    []bool // per cell (layer 0 index), via probe vs pads/edge
 
 	// dynamic copper claims: how many copper discs cover a node, for a
 	// track probe of each class and for a via probe; own subtracts a net's own
-	claimT [2][]int32
+	claimT [][]int32
 	claimV []int32
-	ownT   [][2]map[rnode]int32
+	ownT   [][]map[rnode]int32
 	ownV   []map[rnode]int32
 	hist   []float32
 	// spoke marks the back-layer corridors where the ground plane's thermal
@@ -181,7 +191,7 @@ type router struct {
 	// without a plane.
 	spoke []bool
 	plane int // the plane's net id, -1 for none
-	pres   float64
+	pres  float64
 
 	conns []*conn
 	vias  [][]rnode // per net, via nodes (layer 0 index)
@@ -193,23 +203,50 @@ type router struct {
 	cur   uint32
 }
 
-func (rt *router) width(cls int) float64 {
-	if cls == 1 {
-		return rt.r.PowerTrack
+func (rt *router) width(cls int) float64 { return rt.widths[cls] }
+
+// Route routes every net between the placed parts inside the outline. A net
+// widened automatically (supply and ground) that fails at its width is routed
+// again at signal width; one widened by name is not.
+func Route(parts []*Part, nets []Net, outline Box, rules RouteRules) RouteResult {
+	narrow := map[string]bool{}
+	for {
+		rt, res := routeOnce(parts, nets, outline, rules, narrow)
+		retry := false
+		for _, n := range res.Unrouted {
+			id := rt.netID(n)
+			if id >= 0 && !rt.asked[id] && rt.netCls[id] != 0 && !narrow[n] {
+				narrow[n], retry = true, true
+			}
+		}
+		if !retry {
+			for n := range narrow {
+				res.Narrowed = append(res.Narrowed, n)
+			}
+			sort.Strings(res.Narrowed)
+			return res
+		}
 	}
-	return rt.r.Track
 }
 
-// Route routes every net between the placed parts inside the outline.
-func Route(parts []*Part, nets []Net, outline Box, rules RouteRules) RouteResult {
-	rt := newRouter(parts, nets, outline, rules)
+func (rt *router) netID(name string) int {
+	for id, n := range rt.netName {
+		if n == name {
+			return id
+		}
+	}
+	return -1
+}
+
+func routeOnce(parts []*Part, nets []Net, outline Box, rules RouteRules, narrow map[string]bool) (*router, RouteResult) {
+	rt := newRouter(parts, nets, outline, rules, narrow)
 	res := RouteResult{}
 	order := rt.netOrder()
 	for _, n := range order {
 		res.Connections += max(0, len(rt.netPads[n])-1)
 	}
 	if res.Connections == 0 {
-		return res
+		return rt, res
 	}
 	rt.pres = 0.5
 	for it := 1; it <= maxIterations; it++ {
@@ -247,10 +284,11 @@ func Route(parts []*Part, nets []Net, outline Box, rules RouteRules) RouteResult
 			}
 		}
 	}
-	return rt.result(res)
+	rt.enforceClearance(order)
+	return rt, rt.result(res)
 }
 
-func newRouter(parts []*Part, nets []Net, outline Box, rules RouteRules) *router {
+func newRouter(parts []*Part, nets []Net, outline Box, rules RouteRules, narrow map[string]bool) *router {
 	rt := &router{r: rules, outline: outline, m: rules.Grid * math.Sqrt2 / 2}
 	rt.nx = int(math.Ceil(outline.W()/rules.Grid)) + 1
 	rt.ny = int(math.Ceil(outline.H()/rules.Grid)) + 1
@@ -298,24 +336,43 @@ func newRouter(parts []*Part, nets []Net, outline Box, rules RouteRules) *router
 		}
 	}
 
-	rt.netCls = make([]int, len(rt.netName))
-	for id := range rt.netName {
-		if !isPowerNet(rt.netName[id], netNodes[id]) || rules.PowerTrack <= rules.Track {
-			continue
-		}
-		wide := true
-		for _, pi := range rt.netPads[id] {
-			if rt.pads[pi].minDim < powerPadMin {
-				wide = false
+	// Each net's width: asked for by name, else power width for a supply
+	// net whose pads can all take it, else signal width. One class per
+	// distinct width, so class order never depends on map order.
+	want := make([]float64, len(rt.netName))
+	rt.asked = make([]bool, len(rt.netName))
+	for id, name := range rt.netName {
+		want[id] = rules.Track
+		if w, ok := askedWidth(rules, name, netNodes[id]); ok {
+			want[id], rt.asked[id] = w, true
+		} else if isPowerNet(name, netNodes[id]) && rules.PowerTrack > rules.Track && !narrow[name] {
+			wide := true
+			for _, pi := range rt.netPads[id] {
+				if rt.pads[pi].minDim < powerPadMin {
+					wide = false
+				}
+			}
+			if wide {
+				want[id] = rules.PowerTrack
 			}
 		}
-		if wide {
-			rt.netCls[id] = 1
+	}
+	rt.widths = []float64{rules.Track}
+	for _, w := range want {
+		if !slices.Contains(rt.widths, w) {
+			rt.widths = append(rt.widths, w)
 		}
+	}
+	sort.Float64s(rt.widths[1:])
+	rt.netCls = make([]int, len(rt.netName))
+	for id, w := range want {
+		rt.netCls[id] = slices.Index(rt.widths, w)
 	}
 
 	nodes := 2 * rt.cells
-	for k := 0; k < 2; k++ {
+	rt.padOwner = make([][]int32, len(rt.widths))
+	rt.claimT = make([][]int32, len(rt.widths))
+	for k := range rt.widths {
 		rt.padOwner[k] = make([]int32, nodes)
 		rt.claimT[k] = make([]int32, nodes)
 	}
@@ -325,10 +382,13 @@ func newRouter(parts []*Part, nets []Net, outline Box, rules RouteRules) *router
 	rt.g = make([]float32, nodes*nDirs)
 	rt.from = make([]int32, nodes*nDirs)
 	rt.stamp = make([]uint32, nodes*nDirs)
-	rt.ownT = make([][2]map[rnode]int32, len(rt.netName))
+	rt.ownT = make([][]map[rnode]int32, len(rt.netName))
 	rt.ownV = make([]map[rnode]int32, len(rt.netName))
 	for i := range rt.ownT {
-		rt.ownT[i] = [2]map[rnode]int32{{}, {}}
+		rt.ownT[i] = make([]map[rnode]int32, len(rt.widths))
+		for k := range rt.widths {
+			rt.ownT[i][k] = map[rnode]int32{}
+		}
 		rt.ownV[i] = map[rnode]int32{}
 	}
 	rt.vias = make([][]rnode, len(rt.netName))
@@ -387,8 +447,43 @@ func isPowerNet(name string, nodes []Node) bool {
 		}
 	}
 	n := strings.ToUpper(strings.TrimPrefix(name, "/"))
-	return strings.HasPrefix(n, "VCC") || strings.HasPrefix(n, "VDD") || strings.HasPrefix(n, "VIN") ||
-		strings.HasPrefix(n, "VBAT") || strings.HasPrefix(n, "+") || strings.HasPrefix(n, "-")
+	if strings.HasPrefix(n, "+") || strings.HasPrefix(n, "-") {
+		return true
+	}
+	named := false
+	for _, p := range []string{"VCC", "VDD", "VIN", "VBAT", "VBUS"} {
+		named = named || strings.HasPrefix(n, p)
+	}
+	if !named {
+		return false
+	}
+	// A supply-sounding name on a net that feeds a signal pin is a
+	// measurement of the supply (VBAT_SENSE into an ADC), not the supply.
+	for _, nd := range nodes {
+		switch nd.Type {
+		case "input", "output", "bidirectional", "tri_state":
+			return false
+		}
+	}
+	return true
+}
+
+// askedWidth is the width rules.NetWidths gives a net: by its name, with or
+// without the leading "/", or by any of its pins as "REF.pin" — the only
+// handle on a net KiCad named itself, like Net-(F1-Pad1).
+func askedWidth(rules RouteRules, name string, nodes []Node) (float64, bool) {
+	if w, ok := rules.NetWidths[name]; ok {
+		return w, true
+	}
+	if w, ok := rules.NetWidths[strings.TrimPrefix(name, "/")]; ok {
+		return w, true
+	}
+	for _, nd := range nodes {
+		if w, ok := rules.NetWidths[nd.Ref+"."+nd.Pin]; ok {
+			return w, true
+		}
+	}
+	return 0, false
 }
 
 // buildStatic marks what no trace or via may approach: other nets' pads, bare
@@ -400,7 +495,7 @@ func (rt *router) buildStatic() {
 			px, py := rt.pos(x, y)
 			e := math.Min(math.Min(px-rt.outline.X1, rt.outline.X2-px), math.Min(py-rt.outline.Y1, rt.outline.Y2-py))
 			c := y*rt.nx + x
-			for k := 0; k < 2; k++ {
+			for k := range rt.widths {
 				v := int32(-1)
 				if e < r.Edge+rt.width(k)/2+rt.m {
 					v = -2
@@ -419,7 +514,7 @@ func (rt *router) buildStatic() {
 		// A via may not come near ANY pad, own net included: its hole would
 		// crowd the pad's hole or sit half on its copper.
 		viaR := math.Max(clear+r.Via/2, p.drill/2+r.HoleToHole+r.Drill/2)
-		for k := 0; k < 2; k++ {
+		for k := range rt.widths {
 			traceR := clear + rt.width(k)/2 + rt.m
 			reach := math.Max(traceR, viaR) + math.Max(p.hw, p.hh)
 			rt.eachCell(p.x, p.y, reach, func(x, y int, px, py float64) {
@@ -488,8 +583,8 @@ func (rt *router) claim(net int, n rnode, isVia bool, d int32) {
 	if isVia {
 		half, slack = r.Via/2, 0
 	}
-	var rT [2]float64
-	for k := 0; k < 2; k++ {
+	rT := make([]float64, len(rt.widths))
+	for k := range rt.widths {
 		rT[k] = half + r.Clearance + rt.width(k)/2 + slack + rt.m
 	}
 	rV := half + r.Clearance + r.Via/2 + slack
@@ -497,13 +592,16 @@ func (rt *router) claim(net int, n rnode, isVia bool, d int32) {
 	if isVia {
 		layers = []int{0, 1}
 	}
-	reach := math.Max(math.Max(rT[0], rT[1]), rV)
+	reach := rV
+	for _, v := range rT {
+		reach = math.Max(reach, v)
+	}
 	own := rt.ownT[net]
 	rt.eachCell(cx, cy, reach, func(xx, yy int, px, py float64) {
 		dist := math.Hypot(px-cx, py-cy)
 		for _, ll := range layers {
 			i := rt.node(ll, xx, yy)
-			for k := 0; k < 2; k++ {
+			for k := range rT {
 				if dist < rT[k] {
 					rt.claimT[k][i] += d
 					own[k][i] += d
@@ -964,42 +1062,9 @@ func (rt *router) result(res RouteResult) RouteResult {
 	routedPerNet := map[int]int{}
 	for _, c := range rt.conns {
 		routedPerNet[c.net]++
-		name := rt.netName[c.net]
-		width := rt.width(rt.netCls[c.net])
-		pts := make([][3]float64, len(c.path)) // x, y, layer
-		for k, n := range c.path {
-			l, x, y := rt.split(n)
-			px, py := rt.pos(x, y)
-			pts[k] = [3]float64{px, py, float64(l)}
-		}
-		emit := func(a, b [3]float64) {
-			if a[0] == b[0] && a[1] == b[1] {
-				return
-			}
-			res.Segments = append(res.Segments, Segment{a[0], a[1], b[0], b[1], int(a[2]), width, name})
-		}
-		if c.pads[0] >= 0 {
-			p := rt.pads[c.pads[0]]
-			emit([3]float64{p.x, p.y, pts[0][2]}, pts[0])
-		}
-		start := 0
-		for k := 1; k < len(pts); k++ {
-			if pts[k][2] != pts[k-1][2] {
-				emit(pts[start], pts[k-1])
-				res.Vias = append(res.Vias, Via{pts[k][0], pts[k][1], name})
-				start = k
-				continue
-			}
-			if k+1 < len(pts) && pts[k+1][2] == pts[k][2] &&
-				sameDir(pts[start], pts[k], pts[k+1]) {
-				continue
-			}
-			emit(pts[start], pts[k])
-			start = k
-		}
-		last := pts[len(pts)-1]
-		p := rt.pads[c.pads[1]]
-		emit(last, [3]float64{p.x, p.y, last[2]})
+		segs, vias := rt.geometry(c)
+		res.Segments = append(res.Segments, segs...)
+		res.Vias = append(res.Vias, vias...)
 	}
 	for _, n := range rt.netOrder() {
 		want := len(rt.netPads[n]) - 1
@@ -1008,16 +1073,105 @@ func (rt *router) result(res RouteResult) RouteResult {
 		if got < want {
 			res.Unrouted = append(res.Unrouted, rt.netName[n])
 		}
-		if rt.netCls[n] == 1 {
-			res.PowerNets = append(res.PowerNets, rt.netName[n])
+		if rt.netCls[n] != 0 {
+			res.WideNets = append(res.WideNets, fmt.Sprintf("%s %.2g mm", rt.netName[n], rt.width(rt.netCls[n])))
 		}
 	}
 	sort.Strings(res.Unrouted)
-	sort.Strings(res.PowerNets)
+	sort.Strings(res.WideNets)
 	if rt.r.GroundPlane {
 		res.PlaneNet = rt.planeNet()
 	}
 	return res
+}
+
+// geometry turns a connection's node path into merged straight segments and
+// vias, with a stub from each end to its pad's centre: KiCad connects a track
+// ending anywhere on a pad, but a track ending at the centre is what a hand
+// draws. The stub is necked down to the pad's smaller side, so a wide supply
+// track entering a small pad stays on its copper instead of spilling over it.
+func (rt *router) geometry(c *conn) ([]Segment, []Via) {
+	var segs []Segment
+	var vias []Via
+	name := rt.netName[c.net]
+	width := rt.width(rt.netCls[c.net])
+	pts := make([][3]float64, len(c.path)) // x, y, layer
+	for k, n := range c.path {
+		l, x, y := rt.split(n)
+		px, py := rt.pos(x, y)
+		pts[k] = [3]float64{px, py, float64(l)}
+	}
+	emit := func(a, b [3]float64, w float64) {
+		if a[0] == b[0] && a[1] == b[1] {
+			return
+		}
+		segs = append(segs, Segment{a[0], a[1], b[0], b[1], int(a[2]), w, name})
+	}
+	if c.pads[0] >= 0 {
+		p := rt.pads[c.pads[0]]
+		emit([3]float64{p.x, p.y, pts[0][2]}, pts[0], math.Min(width, p.minDim))
+	}
+	start := 0
+	for k := 1; k < len(pts); k++ {
+		if pts[k][2] != pts[k-1][2] {
+			emit(pts[start], pts[k-1], width)
+			vias = append(vias, Via{pts[k][0], pts[k][1], name})
+			start = k
+			continue
+		}
+		if k+1 < len(pts) && pts[k+1][2] == pts[k][2] && sameDir(pts[start], pts[k], pts[k+1]) {
+			continue
+		}
+		emit(pts[start], pts[k], width)
+		start = k
+	}
+	last := pts[len(pts)-1]
+	p := rt.pads[c.pads[1]]
+	emit(last, [3]float64{p.x, p.y, last[2]}, math.Min(width, p.minDim))
+	return segs, vias
+}
+
+// enforceClearance measures the routing exactly (checkClearance) and rips
+// out whole nets, worst first, until nothing breaks a clearance. Ripped nets
+// get one more try against everybody else as a wall, kept only if exact.
+func (rt *router) enforceClearance(order []int) {
+	pieces := func() []copper {
+		var out []copper
+		for _, c := range rt.conns {
+			segs, vias := rt.geometry(c)
+			for _, sg := range segs {
+				cp := copper{ax: sg.X1, ay: sg.Y1, bx: sg.X2, by: sg.Y2, half: sg.Width / 2, net: c.net}
+				cp.layers[sg.Layer] = true
+				out = append(out, cp)
+			}
+			for _, v := range vias {
+				out = append(out, copper{ax: v.X, ay: v.Y, bx: v.X, by: v.Y, half: rt.r.Via / 2,
+					layers: [2]bool{true, true}, net: c.net})
+			}
+		}
+		return out
+	}
+	var ripped []int
+	for {
+		bad := rt.checkClearance(pieces())
+		if len(bad) == 0 {
+			break
+		}
+		worst, worstN := -1, 0
+		for _, n := range order {
+			if bad[n] > worstN {
+				worst, worstN = n, bad[n]
+			}
+		}
+		rt.ripUp(worst)
+		ripped = append(ripped, worst)
+	}
+	for _, n := range ripped {
+		rt.routeNet(n, true, improveW)
+		if rt.netConflicts(n) > 0 || len(rt.checkClearance(pieces())) > 0 {
+			rt.ripUp(n)
+		}
+	}
 }
 
 // planeNet is the ground net with the most pads, the one worth a pour.

@@ -80,4 +80,9 @@ func RegisterPCBTools(s *mcp.Server, env *Env) {
 			"Checked by KiCad itself (DRC with --schematic-parity); returns the report and a preview. Every board part needs a footprint — compile_schematic's report lists any that are MISSING. " +
 			"Never overwrites an existing board unless overwrite is set.",
 	}, WrapTool(env.Log, "compile_pcb", env.handleCompilePCB))
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "export_fabrication",
+		Description: "Write the files to have a board made and assembled, next to the .kicad_pcb in <name>_fab/: Gerbers, Excellon drill files and map, pick-and-place CSV, BOM CSV, and <name>_gerbers.zip ready to upload to a board house. " +
+			"Refuses unless KiCad's DRC finds no error and the board matches its schematic; refuses unrouted boards unless allow_unrouted is set.",
+	}, WrapTool(env.Log, "export_fabrication", env.handleExportFabrication))
 }

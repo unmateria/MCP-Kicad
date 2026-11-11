@@ -20,6 +20,13 @@ import (
 	"mcp-kicad/internal/sexp"
 )
 
+// PCBOptions are the knobs of CompilePCB.
+type PCBOptions struct {
+	Overwrite bool               // replace an existing board
+	Route     bool               // route it, not only place it
+	NetWidths map[string]float64 // track width per net name, mm
+}
+
 // PCBResult is the outcome of building a board from a schematic.
 type PCBResult struct {
 	PCBPath string
@@ -37,7 +44,7 @@ type PCBResult struct {
 //
 // An existing board is never overwritten unless overwrite is set: it may hold
 // hours of hand routing.
-func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, error) {
+func (e *Env) CompilePCB(schPath string, opt PCBOptions) (*PCBResult, error) {
 	if e.KicadCLI == "" {
 		return nil, fmt.Errorf("compile_pcb needs kicad-cli: it reads the netlist and checks the board with KiCad itself")
 	}
@@ -46,7 +53,7 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 		return nil, err
 	}
 	pcbPath := strings.TrimSuffix(absSch, ".kicad_sch") + ".kicad_pcb"
-	if _, err := os.Stat(pcbPath); err == nil && !overwrite {
+	if _, err := os.Stat(pcbPath); err == nil && !opt.Overwrite {
 		return nil, fmt.Errorf("%s already exists; pass overwrite to replace it (any placement or routing done in KiCad is lost)", pcbPath)
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -93,8 +100,9 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 
 	pr := pcbgen.Place(placed, nl.Nets)
 	rules := pcbgen.DefaultRouteRules
+	rules.NetWidths = opt.NetWidths
 	var routing *pcbgen.RouteResult
-	if route {
+	if opt.Route {
 		rr := pcbgen.Route(placed, nl.Nets, pr.Outline, rules)
 		routing = &rr
 	}
@@ -146,8 +154,11 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 	if routing != nil {
 		fmt.Fprintf(&sb, "routing: %d of %d connections, %d via(s), %d iteration(s); track %.2f mm, clearance %.2f mm\n",
 			routing.Routed, routing.Connections, len(routing.Vias), routing.Iterations, rules.Track, rules.Clearance)
-		if len(routing.PowerNets) > 0 {
-			fmt.Fprintf(&sb, "  power width %.2f mm: %s\n", rules.PowerTrack, strings.Join(routing.PowerNets, ", "))
+		if len(routing.WideNets) > 0 {
+			fmt.Fprintf(&sb, "  wide tracks: %s\n", strings.Join(routing.WideNets, ", "))
+		}
+		if len(routing.Narrowed) > 0 {
+			fmt.Fprintf(&sb, "  did not fit at power width, routed at %.2f mm: %s\n", rules.Track, strings.Join(routing.Narrowed, ", "))
 		}
 		if routing.PlaneNet != "" {
 			joint := "thermal reliefs"
@@ -159,8 +170,18 @@ func (e *Env) CompilePCB(schPath string, overwrite, route bool) (*PCBResult, err
 		if routing.Improved > 0 {
 			fmt.Fprintf(&sb, "  improvement pass made %d net(s) shorter or with fewer vias/bends\n", routing.Improved)
 		}
-		if len(routing.Unrouted) > 0 {
-			fmt.Fprintf(&sb, "  left for you to route: %s\n", strings.Join(routing.Unrouted, ", "))
+		var left []string
+		for _, n := range routing.Unrouted {
+			// The pour finishes what the tracks left of its own net; KiCad's
+			// unconnected count below is the authority on whether it did.
+			if n == routing.PlaneNet && len(rep.Unconnected) == 0 {
+				fmt.Fprintf(&sb, "  %s: the ground plane completes the connections tracks did not make\n", n)
+				continue
+			}
+			left = append(left, n)
+		}
+		if len(left) > 0 {
+			fmt.Fprintf(&sb, "  left for you to route: %s\n", strings.Join(left, ", "))
 		}
 	}
 
@@ -343,9 +364,10 @@ func renderBoardPNG(kicadCLI, pcbPath string) ([]byte, error) {
 
 // CompilePCBArgs is the input of the compile_pcb tool.
 type CompilePCBArgs struct {
-	SchematicPath string `json:"schematic_path" jsonschema:"The .kicad_sch produced by compile_schematic. The board is written next to it as <name>.kicad_pcb"`
-	Overwrite     bool   `json:"overwrite,omitempty" jsonschema:"Replace an existing .kicad_pcb. Off by default: the existing board may hold placement or routing done by hand in KiCad, and this discards it"`
-	NoRoute       bool   `json:"no_route,omitempty" jsonschema:"Place only, leave every connection to route by hand"`
+	SchematicPath string             `json:"schematic_path" jsonschema:"The .kicad_sch produced by compile_schematic. The board is written next to it as <name>.kicad_pcb"`
+	Overwrite     bool               `json:"overwrite,omitempty" jsonschema:"Replace an existing .kicad_pcb. Off by default: the existing board may hold placement or routing done by hand in KiCad, and this discards it"`
+	NoRoute       bool               `json:"no_route,omitempty" jsonschema:"Place only, leave every connection to route by hand"`
+	NetWidths     map[string]float64 `json:"net_widths,omitempty" jsonschema:"Track width in mm per net, for nets that carry current: by net name (e.g. {\"HEATER\": 2.0}) or by any pin on the net as REF.pin (e.g. {\"F1.1\": 2.0}), which also reaches nets KiCad named itself. Without it supply and ground nets get 0.5 mm and the rest 0.25 mm. A requested width is never narrowed: a net that does not fit is left unrouted and reported"`
 }
 
 func (e *Env) handleCompilePCB(_ context.Context, _ *mcp.CallToolRequest, input CompilePCBArgs) (res *mcp.CallToolResult, _ any, _ error) {
@@ -353,7 +375,7 @@ func (e *Env) handleCompilePCB(_ context.Context, _ *mcp.CallToolRequest, input 
 	if input.SchematicPath == "" {
 		return toolText("error: schematic_path is required (the .kicad_sch from compile_schematic)"), nil, nil
 	}
-	out, err := e.CompilePCB(input.SchematicPath, input.Overwrite, !input.NoRoute)
+	out, err := e.CompilePCB(input.SchematicPath, PCBOptions{Overwrite: input.Overwrite, Route: !input.NoRoute, NetWidths: input.NetWidths})
 	if err != nil && out == nil {
 		return toolText(fmt.Sprintf("compile_pcb error: %v", err)), nil, nil
 	}
