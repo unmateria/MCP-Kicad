@@ -74,4 +74,10 @@ func RegisterPCBTools(s *mcp.Server, env *Env) {
 			"Action 'move_footprint': requires reference, x, y, angle. " +
 			"Action 'define_edge_cuts': requires x, y (top-left corner), width, height.",
 	}, WrapTool(env.Log, "modify_pcb_layout", env.handleModifyPCBLayout))
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "compile_pcb",
+		Description: "Build an unrouted board (.kicad_pcb) from a schematic made by compile_schematic: every footprint placed without overlaps inside an edge outline, pads on the nets KiCad reads from the schematic, linked to their symbols so KiCad's Update PCB from Schematic keeps working. " +
+			"Checked by KiCad itself (DRC with --schematic-parity); returns the report and a preview. Every board part needs a footprint — compile_schematic's report lists any that are MISSING. " +
+			"Never overwrites an existing board unless overwrite is set.",
+	}, WrapTool(env.Log, "compile_pcb", env.handleCompilePCB))
 }
